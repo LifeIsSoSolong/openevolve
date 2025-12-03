@@ -53,3 +53,6 @@ htmlcov/
 # For SR
 secrets.yaml
 problems
+
+# for config with aipkey
+config_*.yaml
