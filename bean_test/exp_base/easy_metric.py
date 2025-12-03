@@ -75,8 +75,8 @@ def main() -> None:
     args = parser.parse_args()
 
     mape, rmse = evaluate(args.pred, args.truth)
-    print(f"MAPE: {mape:.6f}")
-    print(f"RMSE: {rmse:.6f}")
+    print(f"MAPE: {mape:.12f}")
+    print(f"RMSE: {rmse:.12f}")
 
 
 if __name__ == "__main__":

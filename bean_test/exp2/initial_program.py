@@ -15,7 +15,7 @@ from pathlib import Path
 
 # Paths
 # PROJECT_ROOT = Path(__file__).resolve().parent
-PROJECT_ROOT = Path(r"D:\清华工程博士\C3I\AutoMLAgent\openevolve\bean_test\exp1")
+PROJECT_ROOT = Path(r"D:\清华工程博士\C3I\AutoMLAgent\openevolve\bean_test\exp2")
 INPUT_DIR = PROJECT_ROOT / "input"
 OUTPUT_DIR = PROJECT_ROOT / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
