@@ -991,7 +991,7 @@ class TimeMixer(nn.Module):
 
 @dataclass
 class IronDailyConfig:
-    project_root: Path = Path(__file__).resolve().parents[0]
+    project_root: Path = Path(__file__).resolve().parents[2]
     checkpoint_dir: Path | None = None
     raw_data_override: str | None = None
     fusion_config: Dict[str, Any] | None = None
@@ -1028,11 +1028,11 @@ class IronDailyConfig:
 
     def __post_init__(self) -> None:
         if self.checkpoint_dir is None:
-            self.checkpoint_dir = self.project_root / "checkpoints"
+            self.checkpoint_dir = self.project_root / "checkpoints" / "standalone_iron_daily"
         if self.fusion_config is None:
             self.fusion_config = copy.deepcopy(DEFAULT_FUSION_CONFIG)
         if self.cached_split_dir is None:
-            self.cached_split_dir = self.project_root / "data"
+            self.cached_split_dir = self.project_root / "data" / "iron" / "datasets" / "cached_splits"
         if self.split_ratio is None:
             self.split_ratio = {"train": 0.8, "val": 0.1, "test": 0.1}
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -1114,7 +1114,7 @@ def split_raw_dataframe(fused_df: pd.DataFrame, cfg: IronDailyConfig) -> Dict[st
     return splits
 
 
-def load_splits_data(
+def load_or_prepare_splits(
     cfg: IronDailyConfig,
 ) -> Tuple[Dict[str, pd.DataFrame], Dict[str, Path], bool]:
     split_paths = get_split_cache_paths(cfg)
@@ -1124,7 +1124,13 @@ def load_splits_data(
             name: pd.read_csv(path, parse_dates=['date']).sort_values('date').reset_index(drop=True)
             for name, path in split_paths.items()
         }
-        return splits, split_paths
+        return splits, split_paths, True
+    logger.info("Cached splits missing or disabled; rebuilding from fused raw data.")
+    fused_df = fuse_and_align_features(cfg)
+    splits = split_raw_dataframe(fused_df, cfg)
+    for name, path in split_paths.items():
+        splits[name].to_csv(path, index=False)
+    return splits, split_paths, False
 
 
 def run_feature_engineering_on_splits(
@@ -1347,13 +1353,14 @@ def evaluate(
     return scaled_mse, scaled_mae, value_mape, da_score
 
 
-def train_predict_evaluate() -> None:
-    cfg = IronDailyConfig()
-    print("1) 加载训练集 验证集 测试集...")
-    raw_splits, split_paths = load_splits_data(cfg)
-    print(f"   已加载数据：{', '.join(str(p.name) for p in split_paths.values())}")
-
-    print("   样本量：", {k: len(v) for k, v in raw_splits.items()})
+def train_pipeline(cfg: IronDailyConfig) -> None:
+    print("1) 数据对齐与拆分：若存在缓存则直接加载拆分文件...")
+    raw_splits, split_paths, loaded_from_cache = load_or_prepare_splits(cfg)
+    if loaded_from_cache:
+        print(f"   已加载缓存拆分：{', '.join(str(p.name) for p in split_paths.values())}")
+    else:
+        print(f"   已重新生成拆分并写入：{', '.join(str(p.relative_to(cfg.cached_split_dir.parent)) for p in split_paths.values())}")
+    print("   拆分后样本量：", {k: len(v) for k, v in raw_splits.items()})
 
     print("2) 特征工程：对拆分后的数据分别变换...")
     fe_splits = run_feature_engineering_on_splits(raw_splits, cfg)
@@ -1472,8 +1479,19 @@ def train_predict_evaluate() -> None:
         f"   Test metrics -> scaled_MSE: {test_mse:.4f}, scaled_MAE: {test_mae:.4f}, "
         f"value_MAPE: {test_mape:.4f}, DA: {test_da:.4f}"
     )
-    return test_mse, test_mae, test_mape, test_da
+
 
 if __name__ == "__main__":
-    test_mse, test_mae, test_mape, test_da = train_predict_evaluate()
+    parser = argparse.ArgumentParser(description="Standalone iron_future_01_daily pipeline")
+    parser.add_argument(
+        "--raw_data",
+        type=str,
+        default=None,
+        help="Path to the merged raw dataset (overrides config data_file)",
+    )
+    args = parser.parse_args()
+
+    configuration = IronDailyConfig(raw_data_override=args.raw_data)
+    train_pipeline(configuration)
     
+    # 运行命令：uv run src/test_task/iron_future_01_daily_pipeline.py --raw_data data/iron/merged_data.csv
