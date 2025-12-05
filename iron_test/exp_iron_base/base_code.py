@@ -15,7 +15,7 @@ import math
 import random
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -991,16 +991,17 @@ class TimeMixer(nn.Module):
 
 @dataclass
 class IronDailyConfig:
-    # Use current working directory as the base so the script can be run from anywhere
-    project_root: Path = Path.cwd()
+    project_root: Path = Path(__file__).resolve().parents[2]
     checkpoint_dir: Path | None = None
     raw_data_override: str | None = None
     fusion_config: Dict[str, Any] | None = None
+    cached_split_dir: Path | None = None
+    use_cached_splits: bool = True
+    seq_len: int = 48
     label_len: int = 0
     pred_len: int = 12
     freq: str = "b"
     target_col: str = "y"
-    seq_len: int = 48
     batch_size: int = 16
     learning_rate: float = 1e-2
     train_epochs: int = 10
@@ -1024,14 +1025,18 @@ class IronDailyConfig:
     use_norm: int = 1
     dir_adjust_scale: float = 20.0
     split_ratio: Dict[str, float] | None = None
+
     def __post_init__(self) -> None:
         if self.checkpoint_dir is None:
             self.checkpoint_dir = self.project_root / "checkpoints" / "standalone_iron_daily"
         if self.fusion_config is None:
             self.fusion_config = copy.deepcopy(DEFAULT_FUSION_CONFIG)
+        if self.cached_split_dir is None:
+            self.cached_split_dir = self.project_root / "data" / "iron" / "datasets" / "cached_splits"
         if self.split_ratio is None:
             self.split_ratio = {"train": 0.8, "val": 0.1, "test": 0.1}
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        self.cached_split_dir.mkdir(parents=True, exist_ok=True)
 
     @property
     def device_obj(self) -> torch.device:
@@ -1093,6 +1098,51 @@ def compute_split_borders(total_len: int, cfg: IronDailyConfig) -> Tuple[List[in
     return border1s, border2s
 
 
+def get_split_cache_paths(cfg: IronDailyConfig) -> Dict[str, Path]:
+    names = ['train', 'val', 'test']
+    return {name: cfg.cached_split_dir / f"{name}_raw.csv" for name in names}
+
+
+def split_raw_dataframe(fused_df: pd.DataFrame, cfg: IronDailyConfig) -> Dict[str, pd.DataFrame]:
+    fused_df = fused_df.sort_values('date').reset_index(drop=True)
+    border1s, border2s = compute_split_borders(len(fused_df), cfg)
+    names = ['train', 'val', 'test']
+    splits: Dict[str, pd.DataFrame] = {}
+    for idx, name in enumerate(names):
+        b1, b2 = border1s[idx], border2s[idx]
+        splits[name] = fused_df.iloc[b1:b2].copy().reset_index(drop=True)
+    return splits
+
+
+def load_or_prepare_splits(
+    cfg: IronDailyConfig,
+) -> Tuple[Dict[str, pd.DataFrame], Dict[str, Path], bool]:
+    split_paths = get_split_cache_paths(cfg)
+    if cfg.use_cached_splits and all(path.exists() for path in split_paths.values()):
+        logger.info("Loading cached splits from %s", cfg.cached_split_dir)
+        splits = {
+            name: pd.read_csv(path, parse_dates=['date']).sort_values('date').reset_index(drop=True)
+            for name, path in split_paths.items()
+        }
+        return splits, split_paths, True
+    logger.info("Cached splits missing or disabled; rebuilding from fused raw data.")
+    fused_df = fuse_and_align_features(cfg)
+    splits = split_raw_dataframe(fused_df, cfg)
+    for name, path in split_paths.items():
+        splits[name].to_csv(path, index=False)
+    return splits, split_paths, False
+
+
+def run_feature_engineering_on_splits(
+    raw_splits: Dict[str, pd.DataFrame], cfg: IronDailyConfig
+) -> Dict[str, pd.DataFrame]:
+    fe_splits: Dict[str, pd.DataFrame] = {}
+    for name, df in raw_splits.items():
+        fe_df = run_feature_engineering(df, cfg)
+        fe_splits[name] = fe_df
+    return fe_splits
+
+
 def build_time_mark_array(dates: pd.Series, cfg: IronDailyConfig) -> np.ndarray:
     if cfg.embed == 'timeF':
         date_array = pd.to_datetime(dates.values)
@@ -1106,27 +1156,42 @@ def build_time_mark_array(dates: pd.Series, cfg: IronDailyConfig) -> np.ndarray:
     return df_stamp[['month', 'day', 'weekday', 'hour']].values
 
 
-def prepare_custom_style_data(df: pd.DataFrame, cfg: IronDailyConfig):
+def prepare_single_split_data(
+    df: pd.DataFrame,
+    cfg: IronDailyConfig,
+    feature_cols: List[str] | None = None,
+) -> Tuple[Dict[str, np.ndarray], List[str]]:
     df = df.copy()
     df['date'] = pd.to_datetime(df['date'])
     df = df.sort_values('date').reset_index(drop=True)
     df = df.assign(**{cfg.target_col: df.pop(cfg.target_col)})
-    feature_cols = [c for c in df.columns if c != 'date']
+    if feature_cols is None:
+        feature_cols = [c for c in df.columns if c != 'date']
+    missing_cols = [c for c in feature_cols if c not in df.columns]
+    if missing_cols:
+        raise KeyError(f"Missing expected feature columns: {missing_cols}")
+    df = df[['date'] + feature_cols]
     data_values = df[feature_cols].values.astype(np.float32)
-    total_len = len(df)
-    border1s, border2s = compute_split_borders(total_len, cfg)
-    split_info = {}
-    names = ['train', 'val', 'test']
-    for idx, name in enumerate(names):
-        b1, b2 = border1s[idx], border2s[idx]
-        data_slice = data_values[b1:b2]
-        stamp_slice = build_time_mark_array(df['date'].iloc[b1:b2], cfg)
-        split_info[name] = {
-            'data': data_slice,
-            'stamp': stamp_slice.astype(np.float32),
-            'length': len(data_slice),
-            'dates': df['date'].iloc[b1:b2].to_numpy(),
-        }
+    stamp_slice = build_time_mark_array(df['date'], cfg)
+    split_entry = {
+        'data': data_values,
+        'stamp': stamp_slice.astype(np.float32),
+        'length': len(data_values),
+        'dates': df['date'].to_numpy(),
+    }
+    return split_entry, feature_cols
+
+
+def prepare_splits_after_engineering(
+    fe_splits: Dict[str, pd.DataFrame], cfg: IronDailyConfig
+) -> Tuple[Dict[str, Dict[str, np.ndarray]], List[str]]:
+    split_info: Dict[str, Dict[str, np.ndarray]] = {}
+    feature_cols: List[str] | None = None
+    for name in ['train', 'val', 'test']:
+        if name not in fe_splits:
+            raise KeyError(f"Missing split '{name}' in engineered datasets.")
+        split_entry, feature_cols = prepare_single_split_data(fe_splits[name], cfg, feature_cols)
+        split_info[name] = split_entry
     return split_info, feature_cols
 
 
@@ -1289,16 +1354,20 @@ def evaluate(
 
 
 def train_pipeline(cfg: IronDailyConfig) -> None:
-    print("1) 数据对齐：对原始序列进行工作日频率重采样并填充...")
-    fused_df = fuse_and_align_features(cfg)
-    print(f"   对齐后样本数: {len(fused_df)}")
+    print("1) 数据对齐与拆分：若存在缓存则直接加载拆分文件...")
+    raw_splits, split_paths, loaded_from_cache = load_or_prepare_splits(cfg)
+    if loaded_from_cache:
+        print(f"   已加载缓存拆分：{', '.join(str(p.name) for p in split_paths.values())}")
+    else:
+        print(f"   已重新生成拆分并写入：{', '.join(str(p.relative_to(cfg.cached_split_dir.parent)) for p in split_paths.values())}")
+    print("   拆分后样本量：", {k: len(v) for k, v in raw_splits.items()})
 
-    print("2) 特征工程：复用日频任务所需的所有变换...")
-    fe_df = run_feature_engineering(fused_df, cfg)
-    print(f"   特征工程完成，剩余样本: {len(fe_df)}")
+    print("2) 特征工程：对拆分后的数据分别变换...")
+    fe_splits = run_feature_engineering_on_splits(raw_splits, cfg)
+    print("   特征工程完成，样本量：", {k: len(v) for k, v in fe_splits.items()})
 
-    print("3) 数据集切分与标准化...")
-    split_info, feature_cols = prepare_custom_style_data(fe_df, cfg)
+    print("3) 数据窗口构建与标准化...")
+    split_info, feature_cols = prepare_splits_after_engineering(fe_splits, cfg)
     enc_in = len(feature_cols)
     print(f"   输入特征维度 enc_in={enc_in}")
     loaders = make_dataloaders_from_splits(split_info, cfg)
