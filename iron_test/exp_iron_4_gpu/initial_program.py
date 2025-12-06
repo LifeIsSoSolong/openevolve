@@ -26,6 +26,7 @@ from torch.utils.data import DataLoader, Dataset
 from types import SimpleNamespace
 from pandas.tseries import offsets
 from pandas.tseries.frequencies import to_offset
+import os
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,11 +34,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger("iron_daily_pipeline")
 FIX_SEED = 2021
-random.seed(FIX_SEED)
-np.random.seed(FIX_SEED)
-torch.manual_seed(FIX_SEED)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(FIX_SEED)
+
+def _set_global_seed(seed: int = 2021) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        try:
+            torch.use_deterministic_algorithms(True)
+        except Exception:
+            # Older torch versions may not have this or certain ops may not support it
+            pass
+
+_set_global_seed(FIX_SEED)
+
+# Generator for DataLoader to keep shuffling deterministic
+_shared_generator = torch.Generator()
+_shared_generator.manual_seed(FIX_SEED)
+
+def _worker_init_fn(worker_id: int) -> None:
+    # Ensure each worker has a deterministic seed derived from global seed
+    worker_seed = FIX_SEED + worker_id
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+    torch.manual_seed(worker_seed)
 
 # -----------------------------------------------------------------------------
 # Feature engineering helpers (inlined from data_provider.feature_engineer)
@@ -992,7 +1015,8 @@ class TimeMixer(nn.Module):
 @dataclass
 class IronDailyConfig:
     # project_root: Path = Path(__file__).resolve().parents[0]
-    project_root: Path = Path(r"D:\清华工程博士\C3I\AutoMLAgent\openevolve\iron_test\exp_iron_2") 
+    project_root: Path = Path(r"D:\清华工程博士\C3I\AutoMLAgent\openevolve\iron_test\exp_iron_4_gpu") 
+    # project_root: Path = Path(r"/home/jovyan/research/kaikai/c3i/AutoMLAgent/openevolve/iron_test/exp_iron_4_gpu")
     checkpoint_dir: Path | None = None
     raw_data_override: str | None = None
     fusion_config: Dict[str, Any] | None = None
@@ -1256,7 +1280,14 @@ def make_dataloaders_from_splits(
         )
         batch_size = cfg.batch_size if split_name != 'test' else 1
         shuffle = split_name == 'train'
-        loaders[split_name] = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=False)
+        loaders[split_name] = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            drop_last=False,
+            worker_init_fn=_worker_init_fn,
+            generator=_shared_generator,
+        )
     return loaders
 
 
