@@ -1006,7 +1006,7 @@ class IronDailyConfig:
     batch_size: int = 16
     learning_rate: float = 1e-2
     train_epochs: int = 10
-    patience: int = 5
+    patience: int = 1000
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     e_layers: int = 4
     d_layers: int = 2
