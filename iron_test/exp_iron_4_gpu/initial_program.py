@@ -28,6 +28,10 @@ from pandas.tseries import offsets
 from pandas.tseries.frequencies import to_offset
 import os
 
+# Ensure deterministic CuBLAS workspace for CUDA deterministic algorithms
+if torch.cuda.is_available():
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":16:8")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
@@ -1016,7 +1020,7 @@ class TimeMixer(nn.Module):
 class IronDailyConfig:
     # project_root: Path = Path(__file__).resolve().parents[0]
     project_root: Path = Path(r"D:\清华工程博士\C3I\AutoMLAgent\openevolve\iron_test\exp_iron_4_gpu") 
-    # project_root: Path = Path(r"/home/jovyan/research/kaikai/c3i/AutoMLAgent/openevolve/iron_test/exp_iron_4_gpu")
+    # project_root: Path = Path(r"/home/jovyan/research/kaikai/c3i/AutoMLAgent/openevolve/iron_test/exp_iron_4_gpu") 
     checkpoint_dir: Path | None = None
     raw_data_override: str | None = None
     fusion_config: Dict[str, Any] | None = None
@@ -1032,6 +1036,7 @@ class IronDailyConfig:
     train_epochs: int = 10
     patience: int = 1000
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    # device: str = "cpu"
     e_layers: int = 4
     d_layers: int = 2
     d_model: int = 16
