@@ -597,7 +597,7 @@ class ProcessParallelController:
                     # Check for new best
                     if self.database.best_program_id == child_program.id:
                         logger.info(
-                            f"🌟 New best solution found at iteration {completed_iteration}: "
+                            f"New best solution found at iteration {completed_iteration}: "
                             f"{child_program.id}"
                         )
 

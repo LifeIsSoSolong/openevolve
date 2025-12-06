@@ -8,7 +8,6 @@ end-to-end without relying on external modules from the project.
 # EVOLVE-BLOCK-START
 from __future__ import annotations
 
-import argparse
 import copy
 import logging
 import math
@@ -1003,22 +1002,23 @@ class IronDailyConfig:
     pred_len: int = 12
     freq: str = "b"
     target_col: str = "y"
-    batch_size: int = 16
-    learning_rate: float = 1e-2
-    train_epochs: int = 10
-    patience: int = 5
+    batch_size: int = 32
+    # Tuned learning rate/epochs for a slightly longer but stabler training schedule
+    learning_rate: float = 2.5e-3
+    train_epochs: int = 30
+    patience: int = 8
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     e_layers: int = 4
     d_layers: int = 2
     d_model: int = 16
     d_ff: int = 32
-    dropout: float = 0.1
+    dropout: float = 0.15
     down_sampling_layers: int = 4
     down_sampling_window: int = 2
     factor: int = 1
     channel_independence: int = 0
     c_out: int = 1
-    use_future_temporal_feature: int = 0
+    use_future_temporal_feature: int = 1
     moving_avg: int = 25
     decomp_method: str = "moving_avg"
     top_k: int = 5
@@ -1054,6 +1054,9 @@ def fuse_and_align_features(cfg: 'IronDailyConfig') -> pd.DataFrame:
 def run_feature_engineering(df: pd.DataFrame, cfg: IronDailyConfig) -> pd.DataFrame:
     df = df.copy()
     df["y"] = np.log1p(df["value"])
+    # Add simple target-difference features to capture recent momentum
+    df["y_diff_1"] = df["y"].diff()
+    df["y_diff_5"] = df["y"].diff(5)
     cols = list(df.columns)
     cols.remove(cfg.target_col)
     remove_list = ["value", "contract_id", "date"] + [f"value_lag_{i + 1}" for i in range(4, 10)]
@@ -1117,7 +1120,7 @@ def split_raw_dataframe(fused_df: pd.DataFrame, cfg: IronDailyConfig) -> Dict[st
 
 def load_splits_data(
     cfg: IronDailyConfig,
-) -> Tuple[Dict[str, pd.DataFrame], Dict[str, Path], bool]:
+) -> Tuple[Dict[str, pd.DataFrame], Dict[str, Path]]:
     split_paths = get_split_cache_paths(cfg)
     if cfg.use_cached_splits and all(path.exists() for path in split_paths.values()):
         logger.info("Loading cached splits from %s", cfg.cached_split_dir)
@@ -1238,14 +1241,34 @@ class CustomStyleDataset(Dataset):
 def make_dataloaders_from_splits(
     split_info: Dict[str, Dict[str, np.ndarray]], cfg: IronDailyConfig
 ) -> Dict[str, DataLoader]:
+    """
+    Construct DataLoaders and apply a simple z-score normalization to
+    non-target features using statistics computed on the training split.
+    The last column is assumed to be the supervised target and is left
+    unnormalized so that evaluation in log-space remains consistent.
+    """
     loaders: Dict[str, DataLoader] = {}
     freq = cfg.freq.lower()
     stride_test = 2 if freq.startswith('m') else 12
     set_types = {'train': 0, 'val': 1, 'test': 2}
+
+    # Compute feature-wise normalization stats on training data (exclude target)
+    train_data = split_info['train']['data']
+    num_features = train_data.shape[1]
+    target_index = num_features - 1
+    feat_mean = feat_std = None
+    if target_index > 0:
+        feat_mean = train_data[:, :target_index].mean(axis=0, keepdims=True)
+        feat_std = train_data[:, :target_index].std(axis=0, keepdims=True) + 1e-6
+
     for split_name, set_type in set_types.items():
         entry = split_info[split_name]
+        data = entry['data'].astype(np.float32, copy=True)
+        if feat_mean is not None:
+            data[:, :target_index] = (data[:, :target_index] - feat_mean) / feat_std
+
         dataset = CustomStyleDataset(
-            entry['data'],
+            data,
             entry['stamp'],
             cfg.seq_len,
             cfg.label_len,
@@ -1395,8 +1418,10 @@ def train_predict_evaluate() -> None:
 
     print("4) 模型初始化与训练...")
     model = build_model(cfg, enc_in).to(cfg.device_obj)
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate)
+    # Slightly lighter weight decay to reduce underfitting while keeping some regularization
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.learning_rate, weight_decay=5e-4)
     criterion = nn.MSELoss()
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.train_epochs)
     logger.info(
         "Training params | epochs=%d, batch=%d, lr=%.4f, patience=%d, seq_len=%d, pred_len=%d, d_model=%d, d_ff=%d",
         cfg.train_epochs,
@@ -1425,7 +1450,7 @@ def train_predict_evaluate() -> None:
         f"down_layers={cfg.down_sampling_layers}, down_window={cfg.down_sampling_window}"
     )
     best_val = math.inf
-    best_state = None
+    best_state: Dict[str, torch.Tensor] | None = None
     patience_counter = 0
     for epoch in range(cfg.train_epochs):
         model.train()
@@ -1443,16 +1468,25 @@ def train_predict_evaluate() -> None:
             optimizer.zero_grad()
             outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
             pred_y, true_y = extract_target(outputs, batch_y, cfg)
-            loss = criterion(pred_y, true_y)
+            mse_loss = criterion(pred_y, true_y)
+            mae_loss = torch.mean(torch.abs(pred_y - true_y))
+            # Add a small value-domain MAPE term so that training aligns better with evaluation metrics
+            value_pred = torch.exp(pred_y) - 1.0
+            value_true = torch.exp(true_y) - 1.0
+            mape_loss = torch.mean(torch.abs((value_pred - value_true) / (value_true.abs() + 1e-6)))
+            loss = mse_loss + 0.5 * mae_loss + 0.1 * mape_loss
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             running_loss += loss.item()
         avg_loss = running_loss / max(len(loaders["train"]), 1)
         val_mse, _, _, _ = evaluate(model, loaders["val"], cfg, cfg.device_obj)
+        scheduler.step()
         print(f"   Epoch {epoch + 1:02d}: train_loss={avg_loss:.4f}, val_mse={val_mse:.4f}")
         if val_mse < best_val:
             best_val = val_mse
-            best_state = model.state_dict()
+            # Deep-copy the best model weights so later updates do not overwrite them
+            best_state = {k: v.clone() for k, v in model.state_dict().items()}
             patience_counter = 0
             logger.info("New best validation MSE %.6f at epoch %d", val_mse, epoch + 1)
         else:

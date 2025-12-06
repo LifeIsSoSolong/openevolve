@@ -15,6 +15,7 @@ import sys
 import traceback
 from pathlib import Path
 from typing import Any, Dict
+import numpy as np
 
 
 def _load_module(program_path: str):
@@ -80,6 +81,13 @@ def _compute_combined_harmonic(metrics: Dict[str, Any]) -> float:
     return float(harmonic_score)
 
 
+def _to_python_scalar(val: Any) -> Any:
+    """Convert numpy scalar types to native Python types for JSON safety."""
+    if isinstance(val, np.generic):
+        return val.item()
+    return val
+
+
 def evaluate(program_path: str) -> Dict[str, Any]:
     """
     OpenEvolve entry point. Runs train_predict_evaluate() from the candidate module.
@@ -109,7 +117,9 @@ def evaluate(program_path: str) -> Dict[str, Any]:
 
         combined = _compute_combined_harmonic(result)
         out = {"combined_score": combined}
-        out.update({k: (float(v) if isinstance(v, (int, float)) else v) for k, v in result.items()})
+        out.update({k: (float(v) if isinstance(v, (int, float, np.generic)) else v) for k, v in result.items()})
+        # Final pass to convert any numpy scalars to Python scalars for JSON safety
+        out = {k: _to_python_scalar(v) for k, v in out.items()}
         return out
 
     except Exception as e:
@@ -120,4 +130,4 @@ def evaluate(program_path: str) -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
-    print(evaluate("./base_code.py"))
+    print(evaluate("./initial_program.py"))
