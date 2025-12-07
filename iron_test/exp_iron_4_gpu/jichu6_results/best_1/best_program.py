@@ -5,10 +5,9 @@ This script aligns raw series data, applies the task-specific feature engineerin
 steps, builds sliding-window datasets, and trains/evaluates the TimeMixer model
 end-to-end without relying on external modules from the project.
 """
-
+# EVOLVE-BLOCK-START
 from __future__ import annotations
 
-import argparse
 import copy
 import logging
 import math
@@ -65,8 +64,6 @@ def _worker_init_fn(worker_id: int) -> None:
     np.random.seed(worker_seed)
     random.seed(worker_seed)
     torch.manual_seed(worker_seed)
-# EVOLVE-BLOCK-START
-
 
 # -----------------------------------------------------------------------------
 # Feature engineering helpers (inlined from data_provider.feature_engineer)
@@ -1021,8 +1018,8 @@ class TimeMixer(nn.Module):
 @dataclass
 class IronDailyConfig:
     # project_root: Path = Path(__file__).resolve().parents[0]
-    project_root: Path = Path(r"D:\清华工程博士\C3I\AutoMLAgent\openevolve\iron_test\exp_iron_4_gpu") 
-    # project_root: Path = Path(r"/home/jovyan/research/kaikai/c3i/AutoMLAgent/openevolve/iron_test/exp_iron_4_gpu") 
+    # project_root: Path = Path(r"D:\清华工程博士\C3I\AutoMLAgent\openevolve\iron_test\exp_iron_4_gpu") 
+    project_root: Path = Path(r"/home/jovyan/research/kaikai/c3i/AutoMLAgent/openevolve/iron_test/exp_iron_4_gpu") 
     checkpoint_dir: Path | None = None
     raw_data_override: str | None = None
     fusion_config: Dict[str, Any] | None = None
@@ -1034,8 +1031,9 @@ class IronDailyConfig:
     freq: str = "b"
     target_col: str = "y"
     batch_size: int = 16
-    learning_rate: float = 1e-2
-    train_epochs: int = 10
+    # Slightly smaller learning rate with more epochs for smoother optimization
+    learning_rate: float = 5e-3
+    train_epochs: int = 15
     patience: int = 1000
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     # device: str = "cpu"
@@ -1056,6 +1054,9 @@ class IronDailyConfig:
     embed: str = "timeF"
     use_norm: int = 1
     dir_adjust_scale: float = 20.0
+    direction_loss_weight: float = 0.1
+    # Slightly weaker weight decay to reduce underfitting
+    weight_decay: float = 5e-4
     split_ratio: Dict[str, float] | None = None
 
     def __post_init__(self) -> None:
@@ -1400,6 +1401,20 @@ def train_predict_evaluate() -> None:
 
     print("3) 数据窗口构建与标准化...")
     split_info, feature_cols = prepare_splits_after_engineering(fe_splits, cfg)
+
+    # 仅对非目标特征做全局标准化（统计量来自训练集），提高数值稳定性
+    target_idx = feature_cols.index(cfg.target_col) if cfg.target_col in feature_cols else len(feature_cols) - 1
+    feat_indices = [i for i in range(len(feature_cols)) if i != target_idx]
+    if feat_indices:
+        train_data = split_info["train"]["data"]
+        feat_mean = train_data[:, feat_indices].mean(axis=0, keepdims=False)
+        feat_std = train_data[:, feat_indices].std(axis=0, keepdims=False)
+        feat_std[feat_std == 0] = 1.0
+        for name, entry in split_info.items():
+            data = entry["data"].astype(np.float32)
+            data[:, feat_indices] = (data[:, feat_indices] - feat_mean) / feat_std
+            entry["data"] = data
+
     enc_in = len(feature_cols)
     print(f"   输入特征维度 enc_in={enc_in}")
     loaders = make_dataloaders_from_splits(split_info, cfg)
@@ -1425,16 +1440,19 @@ def train_predict_evaluate() -> None:
         f"   Dataloader步数：train={loader_steps.get('train', 0)}, "
         f"val={loader_steps.get('val', 0)}, test={loader_steps.get('test', 0)}"
     )
-    test_dataset = loaders["test"].dataset
-    print("   Test窗口时间跨度：")
-    for idx in range(len(test_dataset)):
-        start_date, end_date = test_dataset.window_bounds(idx)
-        print(f"     波段{idx + 1:02d}: {start_date.strftime('%Y-%m-%d')} -> {end_date.strftime('%Y-%m-%d')}")
+    # 简化输出：不再逐窗口打印测试集时间跨度
 
     print("4) 模型初始化与训练...")
     model = build_model(cfg, enc_in).to(cfg.device_obj)
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate)
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=cfg.learning_rate, weight_decay=cfg.weight_decay
+    )
+    # Cosine annealing scheduler: high LR early, lower LR later for better generalization
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=cfg.train_epochs, eta_min=cfg.learning_rate * 0.1
+    )
     criterion = nn.MSELoss()
+    direction_loss_fn = nn.BCEWithLogitsLoss()
     logger.info(
         "Training params | epochs=%d, batch=%d, lr=%.4f, patience=%d, seq_len=%d, pred_len=%d, d_model=%d, d_ff=%d",
         cfg.train_epochs,
@@ -1482,12 +1500,22 @@ def train_predict_evaluate() -> None:
             outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
             pred_y, true_y = extract_target(outputs, batch_y, cfg)
             loss = criterion(pred_y, true_y)
+            if pred_y.size(1) > 1:
+                pred_diff = pred_y[:, 1:, :] - pred_y[:, :-1, :]
+                true_diff = true_y[:, 1:, :] - true_y[:, :-1, :]
+                dir_target = (true_diff >= 0).float()
+                dir_logits = pred_diff * cfg.dir_adjust_scale
+                dir_loss = direction_loss_fn(dir_logits, dir_target)
+                loss = loss + cfg.direction_loss_weight * dir_loss
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             running_loss += loss.item()
         avg_loss = running_loss / max(len(loaders["train"]), 1)
         val_mse, _, _, _ = evaluate(model, loaders["val"], cfg, cfg.device_obj)
         print(f"   Epoch {epoch + 1:02d}: train_loss={avg_loss:.4f}, val_mse={val_mse:.4f}")
+        # Update learning rate schedule each epoch
+        scheduler.step()
         if val_mse < best_val:
             best_val = val_mse
             best_state = model.state_dict()

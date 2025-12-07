@@ -351,15 +351,16 @@ class ProcessParallelController:
             "initializer": _worker_init,
             "initargs": (config_dict, self.evaluation_file, current_env),
         }
+        # Always use spawn to be CUDA-safe in worker processes
+        executor_kwargs["mp_context"] = mp.get_context("spawn")
         if sys.version_info >= (3, 11):
             logger.info(f"Set max {self.config.max_tasks_per_child} tasks per child")
             executor_kwargs["max_tasks_per_child"] = self.config.max_tasks_per_child
         elif self.config.max_tasks_per_child is not None:
             logger.warn(
                 "max_tasks_per_child is only supported in Python 3.11+. "
-                "Ignoring max_tasks_per_child and using spawn start method."
+                "Ignoring max_tasks_per_child; using spawn start method."
             )
-            executor_kwargs["mp_context"] = mp.get_context("spawn")
 
         # Create process pool with initializer
         self.executor = ProcessPoolExecutor(**executor_kwargs)

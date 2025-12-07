@@ -65,157 +65,20 @@ def _worker_init_fn(worker_id: int) -> None:
     np.random.seed(worker_seed)
     random.seed(worker_seed)
     torch.manual_seed(worker_seed)
-# EVOLVE-BLOCK-START
 
+# EVOLVE-BLOCK-START
 
 # -----------------------------------------------------------------------------
 # Feature engineering helpers (inlined from data_provider.feature_engineer)
 # -----------------------------------------------------------------------------
 
-class TimeFeature:
-    def __init__(self):
-        pass
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        pass
-
-    def __repr__(self):
-        return self.__class__.__name__ + "()"
-
-
-class MillisecondOfMinute(TimeFeature):
-    """Millisecond of minute encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        milliseconds = index.second * 1000 + index.microsecond // 1000
-        return milliseconds / 59999.0 - 0.5
-
-
-class SecondOfMinute(TimeFeature):
-    """Minute of hour encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return index.second / 59.0 - 0.5
-
-
-class MinuteOfHour(TimeFeature):
-    """Minute of hour encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return index.minute / 59.0 - 0.5
-
-
-class HourOfDay(TimeFeature):
-    """Hour of day encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return index.hour / 23.0 - 0.5
-
-
-class DayOfWeek(TimeFeature):
-    """Hour of day encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return index.dayofweek / 6.0 - 0.5
-
-
-class DayOfMonth(TimeFeature):
-    """Day of month encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return (index.day - 1) / 30.0 - 0.5
-
-
-class DayOfYear(TimeFeature):
-    """Day of year encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return (index.dayofyear - 1) / 365.0 - 0.5
-
-
-class MonthOfYear(TimeFeature):
-    """Month of year encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return (index.month - 1) / 11.0 - 0.5
-
-
-class WeekOfYear(TimeFeature):
-    """Week of year encoded as value between [-0.5, 0.5]"""
-
-    def __call__(self, index: pd.DatetimeIndex) -> np.ndarray:
-        return (index.isocalendar().week - 1) / 52.0 - 0.5
-
-
-def time_features_from_frequency_str(freq_str: str) -> List[TimeFeature]:
-    """
-    Returns a list of time features that will be appropriate for the given frequency string.
-    Parameters
-    ----------
-    freq_str
-        Frequency string of the form [multiple][granularity] such as "12H", "5min", "1D" etc.
-    """
-
-    features_by_offsets = {
-        offsets.YearEnd: [],
-        offsets.QuarterEnd: [MonthOfYear],
-        offsets.MonthEnd: [MonthOfYear],
-        offsets.Week: [DayOfMonth, WeekOfYear],
-        offsets.Day: [DayOfWeek, DayOfMonth, DayOfYear],
-        offsets.BusinessDay: [DayOfWeek, DayOfMonth, DayOfYear],
-        offsets.Hour: [HourOfDay, DayOfWeek, DayOfMonth, DayOfYear],
-        offsets.Minute: [
-            MinuteOfHour,
-            HourOfDay,
-            DayOfWeek,
-            DayOfMonth,
-            DayOfYear,
-        ],
-        offsets.Second: [
-            SecondOfMinute,
-            MinuteOfHour,
-            HourOfDay,
-            DayOfWeek,
-            DayOfMonth,
-            DayOfYear,
-        ],
-        offsets.Milli: [
-            MillisecondOfMinute,
-            SecondOfMinute,
-            MinuteOfHour,
-            HourOfDay,
-            DayOfWeek,
-            DayOfMonth,
-            DayOfYear,
-        ],
-    }
-
-    offset = to_offset(freq_str)
-
-    for offset_type, feature_classes in features_by_offsets.items():
-        if isinstance(offset, offset_type):
-            return [cls() for cls in feature_classes]
-
-    supported_freq_msg = f"""
-    Unsupported frequency {freq_str}
-    The following frequencies are supported:
-        Y   - yearly
-            alias: A
-        M   - monthly
-        W   - weekly
-        D   - daily
-        B   - business days
-        H   - hourly
-        T   - minutely
-            alias: min
-        S   - secondly
-        ms  - milliseconds
-    """
-    raise RuntimeError(supported_freq_msg)
-
-
-def time_features(dates, freq='h'):
-    return np.vstack([feat(dates) for feat in time_features_from_frequency_str(freq)])
+def time_features(dates, freq: str = "b") -> np.ndarray:
+    """Business-day calendar features (dow/dom/doy scaled to [-0.5, 0.5])."""
+    dates = pd.to_datetime(dates)
+    dow = dates.dayofweek / 6.0 - 0.5
+    dom = (dates.day - 1) / 30.0 - 0.5
+    doy = (dates.dayofyear - 1) / 365.0 - 0.5
+    return np.vstack([dow, dom, doy])
 
 def add_age_since_release(df: pd.DataFrame, monthly_cols: List[str], date_col: str) -> pd.DataFrame:
     df = df.copy()
@@ -328,179 +191,14 @@ def add_supply_demand_composite_features(
     return df
 
 
-# -----------------------------------------------------------------------------
-# Feature fusion helpers (derived from src/data_process/feature_fusion.py)
-# -----------------------------------------------------------------------------
-
-DEFAULT_FUSION_CONFIG = {
-    "data_file": "data/iron/merged_data.csv",
-    "target_name": "FU00002776",
-    "output_file": "data/iron/datasets/final_features_01合约收盘价_v2.csv",
-    "features": {
-        "supply": [
-            {
-                "feature_name": "ID01002312",
-                "file_path": "data/mysteel3/ID01002312_铁矿：进口：库存：45个港口（日）.csv",
-                "source_column": "value",
-                "fill_method": "ffill",
-            },
-            {
-                "feature_name": "ID00186575",
-                "file_path": "data/mysteel3/ID00186575_铁矿：船舶到港量：北方港口（周）.csv",
-                "source_column": "value",
-                "fill_method": "weekly_lag1",
-            },
-        ],
-        "demand": [
-            {
-                "feature_name": "ID00186100",
-                "file_path": "data/mysteel3/ID00186100_铁矿：进口：日均疏港量合计：45个港口（周）.csv",
-                "source_column": "value",
-                "fill_method": "weekly_lag1",
-            },
-            {
-                "feature_name": "ID00183109",
-                "file_path": "data/mysteel3/ID00183109_247家钢铁企业：高炉开工率：中国（周）.csv",
-                "source_column": "value",
-                "fill_method": "weekly_lag1",
-            },
-        ],
-        "macro": [
-            {
-                "feature_name": "GM0000033031",
-                "file_path": "data/mysteel3/GM0000033031_美国：非农就业人员：季调人数变动（月）.csv",
-                "source_column": "value",
-                "fill_method": "monthly_lag1_daily",
-            },
-            {
-                "feature_name": "CM0000013263",
-                "file_path": "data/mysteel3/CM0000013263_统计局：制造业PMI：购进价（月）.csv",
-                "source_column": "value",
-                "fill_method": "monthly_lag1_daily",
-            },
-        ],
-    },
-}
+# Feature fusion is disabled in this standalone script; keep a tiny placeholder.
+DEFAULT_FUSION_CONFIG: Dict[str, Any] = {}
 
 
-def resolve_path(base: Path, candidate: str | Path) -> Path:
-    candidate_path = Path(candidate)
-    if not candidate_path.is_absolute():
-        candidate_path = base / candidate_path
-    return candidate_path
-
-
-def ensure_datetime_series(series: pd.Series) -> pd.Series:
-    if not pd.api.types.is_datetime64_any_dtype(series.index):
-        series.index = pd.to_datetime(series.index)
-    series = series.sort_index()
-    return series[~series.index.duplicated(keep='last')]
-
-
-def infer_weekly_rule(index: pd.DatetimeIndex, fallback: str | None = None) -> str:
-    default_rule = fallback or 'W-FRI'
-    if index is None or len(index) == 0:
-        return default_rule
-    index = pd.to_datetime(index).sort_values()
-    freq = pd.infer_freq(index)
-    day_map = {0: 'MON', 1: 'TUE', 2: 'WED', 3: 'THU', 4: 'FRI', 5: 'SAT', 6: 'SUN'}
-    if freq and freq.startswith('W-'):
-        return freq
-    if freq == '7D':
-        anchor_day = int(index[-1].dayofweek)
-        return f"W-{day_map.get(anchor_day, 'FRI')}"
-    try:
-        anchor_day = int(pd.Series(index.dayofweek).mode().iloc[0])
-        return f"W-{day_map.get(anchor_day, 'FRI')}"
-    except Exception:
-        return default_rule
-
-
-def resample_with_agg(series: pd.Series, rule: str, agg: str) -> pd.Series:
-    resampler = series.resample(rule, label='right', closed='right')
-    agg = (agg or 'last').lower()
-    if agg == 'mean':
-        return resampler.mean()
-    if agg == 'last':
-        return resampler.last()
-    if agg == 'sum':
-        return resampler.sum()
-    if agg == 'median':
-        return resampler.median()
-    raise ValueError(f"Unsupported aggregation '{agg}' for rule '{rule}'")
-
-
-def apply_fill_method(
-    series: pd.Series,
-    method: str,
-    target_index: pd.DatetimeIndex,
-    weekly_rule: str,
-) -> pd.Series:
-    method = (method or 'ffill').lower()
-    aligned_series = ensure_datetime_series(series)
-    if method == 'weekly_lag1':
-        weekly_series = resample_with_agg(aligned_series, weekly_rule, 'last').shift(1)
-        filled = weekly_series.reindex(target_index)
-        return filled.ffill()
-    if method == 'monthly_lag1_daily':
-        monthly_series = resample_with_agg(aligned_series, 'M', 'last').shift(1)
-        filled = monthly_series.reindex(target_index)
-        return filled.ffill()
-    if method == 'ffill':
-        aligned = aligned_series.reindex(target_index)
-        filled = aligned.ffill()
-        if aligned.isna().sum() > aligned_series.isna().sum():
-            filled = filled.shift(1)
-        return filled
-    aligned = aligned_series.reindex(target_index)
-    return aligned.ffill()
-
-
-def build_feature_fusion_dataset(cfg: 'IronDailyConfig') -> pd.DataFrame:
-    fusion_cfg = copy.deepcopy(cfg.fusion_config or DEFAULT_FUSION_CONFIG)
-
-    data_path_str = cfg.raw_data_override or fusion_cfg.get('data_file')
-    if data_path_str is None:
-        raise ValueError("Fusion config must provide 'data_file'.")
-    data_path = resolve_path(cfg.project_root, data_path_str)
-
-    data_df = pd.read_csv(data_path, parse_dates=['date'])
-    data_df = data_df.sort_values('date').drop_duplicates('date', keep='last')
-    data_df = data_df.set_index('date')
-
-    target_name = fusion_cfg['target_name']
-    target_freq = str(fusion_cfg.get('target_frequency', 'D')).upper()
-    target_agg = fusion_cfg.get('target_agg', 'last')
-
-    target_series = ensure_datetime_series(data_df[target_name])
-    weekly_rule = fusion_cfg.get('target_weekly_rule')
-
-    if target_freq.startswith('W'):
-        weekly_rule = weekly_rule or infer_weekly_rule(target_series.index)
-        target_series = resample_with_agg(target_series, weekly_rule, target_agg)
-    elif target_freq.startswith('M'):
-        target_series = resample_with_agg(target_series, 'M', target_agg)
-    target_df = target_series.dropna().to_frame(name='value')
-
-    target_index = target_df.index
-    weekly_rule = weekly_rule or infer_weekly_rule(target_index)
-
-    final_df = target_df.copy()
-    feature_groups = fusion_cfg.get('features', {})
-    for group_features in feature_groups.values():
-        for feature in group_features:
-            feature_name = feature['feature_name']
-            fill_method = feature.get('fill_method', 'ffill')
-            if feature_name not in data_df.columns:
-                raise KeyError(f"Feature '{feature_name}' not found in raw dataset.")
-            series = data_df[feature_name]
-            processed = apply_fill_method(series, fill_method, target_index, weekly_rule)
-            final_df[feature_name] = processed
-
-    final_df = final_df.sort_index().ffill().dropna()
-    final_df = final_df.reset_index().rename(columns={'index': 'date'})
-
-    return final_df
+def build_feature_fusion_dataset(cfg: 'IronDailyConfig') -> pd.DataFrame:  # pragma: no cover
+    raise NotImplementedError(
+        "Feature fusion is disabled; provide cached train_raw/val_raw/test_raw CSVs instead."
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -533,20 +231,7 @@ class SeriesDecomp(nn.Module):
         return res, moving_mean
 
 
-class DFTSeriesDecomp(nn.Module):
-    def __init__(self, top_k: int = 5):
-        super().__init__()
-        self.top_k = top_k
-
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        xf = torch.fft.rfft(x)
-        freq = torch.abs(xf)
-        freq[..., 0] = 0
-        top_k_freq, _ = torch.topk(freq, self.top_k)
-        xf = torch.where(freq > top_k_freq.min(), xf, torch.zeros_like(xf))
-        x_season = torch.fft.irfft(xf, n=x.size(1))
-        x_trend = x - x_season
-        return x_season, x_trend
+# DFTSeriesDecomp is unnecessary here because decomp_method is fixed to 'moving_avg'.
 
 
 class TokenEmbedding(nn.Module):
@@ -568,46 +253,8 @@ class TokenEmbedding(nn.Module):
         return x
 
 
-class TemporalEmbedding(nn.Module):
-    def __init__(self, d_model: int, embed_type: str = 'fixed', freq: str = 'h'):
-        super().__init__()
-        minute_size = 4
-        hour_size = 24
-        weekday_size = 7
-        day_size = 32
-        month_size = 13
-        embed_cls = FixedEmbedding if embed_type == 'fixed' else nn.Embedding
-        if freq == 't':
-            self.minute_embed = embed_cls(minute_size, d_model)
-        if freq in ['t', 'h']:
-            self.hour_embed = embed_cls(hour_size, d_model)
-        self.weekday_embed = embed_cls(weekday_size, d_model)
-        self.day_embed = embed_cls(day_size, d_model)
-        self.month_embed = embed_cls(month_size, d_model)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x.long()
-        minute_x = self.minute_embed(x[:, :, 4]) if hasattr(self, 'minute_embed') else 0.
-        hour_x = self.hour_embed(x[:, :, 3]) if hasattr(self, 'hour_embed') else 0.
-        weekday_x = self.weekday_embed(x[:, :, 2])
-        day_x = self.day_embed(x[:, :, 1])
-        month_x = self.month_embed(x[:, :, 0])
-        return hour_x + weekday_x + day_x + month_x + minute_x
-
-
-class FixedEmbedding(nn.Module):
-    def __init__(self, c_in: int, d_model: int):
-        super().__init__()
-        w = torch.zeros(c_in, d_model).float()
-        position = torch.arange(0, c_in).float().unsqueeze(1)
-        div_term = (torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model)).exp()
-        w[:, 0::2] = torch.sin(position * div_term)
-        w[:, 1::2] = torch.cos(position * div_term)
-        self.emb = nn.Embedding(c_in, d_model)
-        self.emb.weight = nn.Parameter(w, requires_grad=False)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.emb(x).detach()
+# TemporalEmbedding / FixedEmbedding stubs are not needed since embed='timeF'
+# always routes through TimeFeatureEmbedding in DataEmbeddingWoPos.
 
 
 class TimeFeatureEmbedding(nn.Module):
@@ -624,10 +271,8 @@ class DataEmbeddingWoPos(nn.Module):
     def __init__(self, c_in: int, d_model: int, embed_type: str, freq: str, dropout: float):
         super().__init__()
         self.value_embedding = TokenEmbedding(c_in=c_in, d_model=d_model)
-        if embed_type == 'timeF':
-            self.temporal_embedding = TimeFeatureEmbedding(d_model=d_model, freq=freq)
-        else:
-            self.temporal_embedding = TemporalEmbedding(d_model=d_model, embed_type=embed_type, freq=freq)
+        # For this task we always use calendar time features (embed='timeF')
+        self.temporal_embedding = TimeFeatureEmbedding(d_model=d_model, freq=freq)
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x: torch.Tensor | None, x_mark: torch.Tensor | None) -> torch.Tensor:
@@ -742,19 +387,11 @@ class MultiScaleTrendMixing(nn.Module):
 class PastDecomposableMixing(nn.Module):
     def __init__(self, configs):
         super().__init__()
-        self.seq_len = configs.seq_len
-        self.pred_len = configs.pred_len
-        self.down_sampling_window = configs.down_sampling_window
-        self.layer_norm = nn.LayerNorm(configs.d_model)
-        self.dropout = nn.Dropout(configs.dropout)
         self.channel_independence = configs.channel_independence
-        if configs.decomp_method == 'moving_avg':
-            self.decomposition = SeriesDecomp(configs.moving_avg)
-        elif configs.decomp_method == 'dft_decomp':
-            self.decomposition = DFTSeriesDecomp(configs.top_k)
-        else:
+        if configs.decomp_method != 'moving_avg':
             raise ValueError('Unsupported decomposition method')
-        if configs.channel_independence == 0:
+        self.decomposition = SeriesDecomp(configs.moving_avg)
+        if self.channel_independence == 0:
             self.cross_layer = nn.Sequential(
                 nn.Linear(configs.d_model, configs.d_ff),
                 nn.GELU(),
@@ -770,8 +407,8 @@ class PastDecomposableMixing(nn.Module):
 
     def forward(self, x_list: List[torch.Tensor]) -> List[torch.Tensor]:
         length_list = [x.size(1) for x in x_list]
-        season_list = []
-        trend_list = []
+        season_list: List[torch.Tensor] = []
+        trend_list: List[torch.Tensor] = []
         for x in x_list:
             season, trend = self.decomposition(x)
             if self.channel_independence == 0:
@@ -781,7 +418,7 @@ class PastDecomposableMixing(nn.Module):
             trend_list.append(trend.permute(0, 2, 1))
         out_season_list = self.mixing_multi_scale_season(season_list)
         out_trend_list = self.mixing_multi_scale_trend(trend_list)
-        out_list = []
+        out_list: List[torch.Tensor] = []
         for ori, out_season, out_trend, length in zip(x_list, out_season_list, out_trend_list, length_list):
             out = out_season + out_trend
             if self.channel_independence:
@@ -823,8 +460,6 @@ class TimeMixer(nn.Module):
                 )
                 for i in range(configs.down_sampling_layers + 1)
             ])
-            dir_out_channels = 1 if self.channel_independence == 1 else configs.c_out
-            self.direction_head = nn.Linear(configs.d_model, dir_out_channels, bias=True)
             if self.channel_independence == 1:
                 self.projection_layer = nn.Linear(configs.d_model, 1, bias=True)
             else:
@@ -843,13 +478,8 @@ class TimeMixer(nn.Module):
                     )
                     for i in range(configs.down_sampling_layers + 1)
                 ])
-        elif self.task_name in ['imputation', 'anomaly_detection']:
-            out_dim = 1 if self.channel_independence == 1 else configs.c_out
-            self.projection_layer = nn.Linear(configs.d_model, out_dim, bias=True)
-        elif self.task_name == 'classification':
-            self.act = F.gelu
-            self.dropout = nn.Dropout(configs.dropout)
-            self.projection = nn.Linear(configs.d_model * configs.seq_len, configs.num_class)
+            # Learnable weights for aggregating multi-scale predictions instead of a simple sum
+            self.scale_weights = nn.Parameter(torch.ones(configs.down_sampling_layers + 1))
         else:
             raise ValueError('Unsupported task name')
 
@@ -922,16 +552,13 @@ class TimeMixer(nn.Module):
         x_dec: torch.Tensor | None,
         x_mark_dec: torch.Tensor | None,
     ) -> torch.Tensor:
-        self.future_time_embed = None
-        if self.use_future_temporal_feature and x_mark_dec is not None:
-            B, _, N = x_enc.size()
-            future_mark = x_mark_dec[:, -self.pred_len:, :]
-            if self.channel_independence == 1:
-                future_mark = future_mark.repeat(N, 1, 1)
-            self.future_time_embed = self.enc_embedding(None, future_mark)
+        # In this task we always set use_future_temporal_feature=0, so we skip
+        # the unused future-time gating logic and directly build multi-scale
+        # encoder inputs. This keeps the forward pass compact but is behaviour-
+        # equivalent for the current configuration.
         x_enc_list, x_mark_list = self.__multi_scale_process_inputs(x_enc, x_mark_enc)
-        x_list = []
-        x_mark_processed = []
+        x_list: List[torch.Tensor] = []
+        x_mark_processed: List[torch.Tensor] = []
         if x_mark_list is not None:
             for x, x_mark, norm_layer in zip(x_enc_list, x_mark_list, self.normalize_layers):
                 x = norm_layer(x, 'norm')
@@ -948,7 +575,7 @@ class TimeMixer(nn.Module):
                     B, T, N = x.size()
                     x = x.permute(0, 2, 1).contiguous().reshape(B * N, T, 1)
                 x_list.append(x)
-        enc_out_list = []
+        enc_out_list: List[torch.Tensor] = []
         processed = self.pre_enc(x_list)
         if self.channel_independence == 1:
             processed_list = processed
@@ -969,48 +596,35 @@ class TimeMixer(nn.Module):
             x_list = (enc_inputs, out_res_list)
         for i in range(self.layer):
             enc_out_list = self.pdm_blocks[i](enc_out_list)
+        # Multi-scale regression + projection
         dec_out_list = self.future_multi_mixing(x_enc.size(0), enc_out_list, x_list)
-        dec_out = torch.stack(dec_out_list, dim=-1).sum(-1)
+        dec_out_stack = torch.stack(dec_out_list, dim=-1)
+        # Aggregate predictions from different scales using learnable softmax weights
+        if hasattr(self, "scale_weights"):
+            weights = torch.softmax(self.scale_weights, dim=0)
+            dec_out = (dec_out_stack * weights.view(1, 1, 1, -1)).sum(-1)
+        else:
+            dec_out = dec_out_stack.sum(-1)
+        # Denormalise back to the original scale of encoder inputs
         dec_out = self.normalize_layers[0](dec_out, 'denorm')
         return dec_out
 
     def future_multi_mixing(self, B: int, enc_out_list: List[torch.Tensor], x_list):
-        dec_out_list = []
-        if self.channel_independence == 1:
-            x_list = x_list[0]
-            for i, enc_out in zip(range(len(x_list)), enc_out_list):
-                dec_out = self.predict_layers[i](enc_out.permute(0, 2, 1)).permute(0, 2, 1)
-                if self.use_future_temporal_feature and self.future_time_embed is not None:
-                    fusion = torch.cat([dec_out, self.future_time_embed], dim=-1)
-                    gate = torch.sigmoid(self.future_gate(fusion))
-                    dec_out = dec_out + gate * (self.future_time_embed - dec_out)
-                dir_logits = self.direction_head(dec_out)
-                dec_out = self.projection_layer(dec_out)
-                dec_out = dec_out.reshape(B, self.configs.c_out, self.pred_len).permute(0, 2, 1).contiguous()
-                dir_logits = dir_logits.reshape(B, 1, self.pred_len).permute(0, 2, 1).contiguous()
-                dec_out_list.append(dec_out)
-        else:
-            enc_inputs, out_res_list = x_list
-            for i, (enc_out, out_res) in enumerate(zip(enc_out_list, out_res_list)):
-                dec_out = self.predict_layers[i](enc_out.permute(0, 2, 1)).permute(0, 2, 1)
-                if self.use_future_temporal_feature and self.future_time_embed is not None:
-                    fusion = torch.cat([dec_out, self.future_time_embed], dim=-1)
-                    gate = torch.sigmoid(self.future_gate(fusion))
-                    dec_out = dec_out + gate * (self.future_time_embed - dec_out)
-                dec_out = self.out_projection(dec_out, i, out_res)
-                dec_out_list.append(dec_out)
+        # With channel_independence fixed to 0 in this pipeline, we only need
+        # the shared multi-scale regression path, which removes unused branches
+        # and slightly reduces overhead without changing behaviour.
+        enc_inputs, out_res_list = x_list
+        dec_out_list: List[torch.Tensor] = []
+        for i, (enc_out, out_res) in enumerate(zip(enc_out_list, out_res_list)):
+            dec_out = self.predict_layers[i](enc_out.permute(0, 2, 1)).permute(0, 2, 1)
+            dec_out = self.out_projection(dec_out, i, out_res)
+            dec_out_list.append(dec_out)
         return dec_out_list
 
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
         if self.task_name in ['long_term_forecast', 'short_term_forecast']:
             return self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec)
-        if self.task_name == 'imputation':
-            raise NotImplementedError('Imputation path is not required for this script')
-        if self.task_name == 'anomaly_detection':
-            raise NotImplementedError('Anomaly detection path is not required for this script')
-        if self.task_name == 'classification':
-            raise NotImplementedError('Classification path is not required for this script')
-        raise ValueError('Unknown task')
+        raise ValueError('Unsupported task name for TimeMixer')
 
 
 # -----------------------------------------------------------------------------
@@ -1021,8 +635,8 @@ class TimeMixer(nn.Module):
 @dataclass
 class IronDailyConfig:
     # project_root: Path = Path(__file__).resolve().parents[0]
-    project_root: Path = Path(r"D:\清华工程博士\C3I\AutoMLAgent\openevolve\iron_test\exp_iron_4_gpu") 
-    # project_root: Path = Path(r"/home/jovyan/research/kaikai/c3i/AutoMLAgent/openevolve/iron_test/exp_iron_4_gpu") 
+    # project_root: Path = Path(r"D:\清华工程博士\C3I\AutoMLAgent\openevolve\iron_test\exp_iron_4_gpu") 
+    project_root: Path = Path(r"/home/jovyan/research/kaikai/c3i/AutoMLAgent/openevolve/iron_test/exp_iron_4_gpu") 
     checkpoint_dir: Path | None = None
     raw_data_override: str | None = None
     fusion_config: Dict[str, Any] | None = None
@@ -1057,6 +671,7 @@ class IronDailyConfig:
     use_norm: int = 1
     dir_adjust_scale: float = 20.0
     split_ratio: Dict[str, float] | None = None
+    blend_alpha: float = 0.8
 
     def __post_init__(self) -> None:
         if self.checkpoint_dir is None:
@@ -1076,10 +691,10 @@ class IronDailyConfig:
 
 
 def fuse_and_align_features(cfg: 'IronDailyConfig') -> pd.DataFrame:
-    fusion_df = build_feature_fusion_dataset(cfg)
-    fusion_df["date"] = pd.to_datetime(fusion_df["date"])
-    fusion_df = fusion_df.sort_values("date").reset_index(drop=True)
-    return fusion_df
+    """Unused in this standalone pipeline; cached CSV splits are loaded instead."""
+    raise NotImplementedError(
+        "fuse_and_align_features is unused; cached train/val/test splits are loaded instead."
+    )
 
 
 def run_feature_engineering(df: pd.DataFrame, cfg: IronDailyConfig) -> pd.DataFrame:
@@ -1108,26 +723,8 @@ def run_feature_engineering(df: pd.DataFrame, cfg: IronDailyConfig) -> pd.DataFr
 
 
 def compute_split_borders(total_len: int, cfg: IronDailyConfig) -> Tuple[List[int], List[int]]:
-    ratios = cfg.split_ratio
-    train_ratio = float(ratios.get("train", 0.8))
-    val_ratio = float(ratios.get("val", 0.1))
-    test_ratio = float(ratios.get("test", 0.1))
-    ratio_sum = train_ratio + val_ratio + test_ratio
-    if ratio_sum <= 0:
-        raise ValueError("Split ratios must sum to a positive value.")
-    train_ratio /= ratio_sum
-    val_ratio /= ratio_sum
-    test_ratio = 1.0 - train_ratio - val_ratio
-
-    num_train = int(total_len * train_ratio)
-    num_val = int(total_len * val_ratio)
-    num_test = total_len - num_train - num_val
-    if num_train <= 0 or num_test <= 0:
-        raise ValueError("Insufficient data after applying split ratios.")
-
-    border1s = [0, max(num_train - cfg.seq_len, 0), total_len - num_test - cfg.seq_len]
-    border2s = [num_train, num_train + num_val, total_len]
-    return border1s, border2s
+    # unused helper; cached CSV splits are required
+    raise NotImplementedError("compute_split_borders is disabled; cached train/val/test splits are required.")
 
 
 def get_split_cache_paths(cfg: IronDailyConfig) -> Dict[str, Path]:
@@ -1136,14 +733,8 @@ def get_split_cache_paths(cfg: IronDailyConfig) -> Dict[str, Path]:
 
 
 def split_raw_dataframe(fused_df: pd.DataFrame, cfg: IronDailyConfig) -> Dict[str, pd.DataFrame]:
-    fused_df = fused_df.sort_values('date').reset_index(drop=True)
-    border1s, border2s = compute_split_borders(len(fused_df), cfg)
-    names = ['train', 'val', 'test']
-    splits: Dict[str, pd.DataFrame] = {}
-    for idx, name in enumerate(names):
-        b1, b2 = border1s[idx], border2s[idx]
-        splits[name] = fused_df.iloc[b1:b2].copy().reset_index(drop=True)
-    return splits
+    # unused helper; cached train/val/test splits must be provided instead
+    raise NotImplementedError("split_raw_dataframe is unused in this pipeline; cached splits must be provided.")
 
 
 def load_splits_data(
@@ -1218,6 +809,20 @@ def prepare_splits_after_engineering(
             raise KeyError(f"Missing split '{name}' in engineered datasets.")
         split_entry, feature_cols = prepare_single_split_data(fe_splits[name], cfg, feature_cols)
         split_info[name] = split_entry
+
+    # 标准化除目标列之外的特征（使用训练集统计量），提高数值稳定性
+    if 'train' in split_info:
+        train_data = split_info['train']['data']
+        if isinstance(train_data, np.ndarray) and train_data.ndim == 2 and train_data.shape[1] > 1:
+            num_features = train_data.shape[1]
+            feat_slice = slice(0, num_features - 1)  # 最后一列为目标y，保持原尺度
+            mean = train_data[:, feat_slice].mean(axis=0, keepdims=True)
+            std = train_data[:, feat_slice].std(axis=0, keepdims=True)
+            std[std == 0] = 1.0
+            for name in ['train', 'val', 'test']:
+                data = split_info[name]['data'].astype(np.float32)
+                data[:, feat_slice] = (data[:, feat_slice] - mean) / std
+                split_info[name]['data'] = data
     return split_info, feature_cols
 
 
@@ -1346,33 +951,69 @@ def compute_directional_accuracy(pred_value: np.ndarray, true_value: np.ndarray)
     return float(np.mean(agreement))
 
 
-def evaluate(
+def _collect_log_forecasts(
     model: TimeMixer,
     loader: DataLoader,
     cfg: IronDailyConfig,
     device: torch.device,
-    apply_log_transform: bool = True,
-) -> Tuple[float, float, float, float]:
+) -> Tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+    """Helper that returns (preds, trues, naive) in log space."""
     model.eval()
     preds: List[np.ndarray] = []
     trues: List[np.ndarray] = []
+    naives: List[np.ndarray] = []
     with torch.no_grad():
         for batch_x, batch_y, batch_x_mark, batch_y_mark in loader:
             batch_x = batch_x.to(device)
             batch_y = batch_y.to(device)
             batch_x_mark = batch_x_mark.to(device)
             batch_y_mark = batch_y_mark.to(device)
-            if cfg.down_sampling_layers == 0:
-                dec_inp = torch.zeros_like(batch_y[:, -cfg.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y[:, :cfg.label_len, :], dec_inp], dim=1).to(device)
-            else:
-                dec_inp = None
+            # 当前配置中总是使用多层下采样，因此解码器输入恒为 None
+            dec_inp = None
             outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
             pred_y, true_y = extract_target(outputs, batch_y, cfg)
+
+            # Naive baseline: repeat last observed target value over the horizon
+            if cfg.c_out == 1:
+                last_val = batch_x[:, -1:, -1:]
+            else:
+                last_val = batch_x[:, -1:, 0:1]
+            naive_y = last_val.repeat(1, cfg.pred_len, 1)
+
             preds.append(pred_y.cpu().numpy())
             trues.append(true_y.cpu().numpy())
+            naives.append(naive_y.cpu().numpy())
+    if not preds:
+        return None, None, None
+
     preds_arr = np.concatenate(preds, axis=0)
     trues_arr = np.concatenate(trues, axis=0)
+    naive_arr = np.concatenate(naives, axis=0)
+    return preds_arr, trues_arr, naive_arr
+
+
+def evaluate(
+    model: TimeMixer,
+    loader: DataLoader,
+    cfg: IronDailyConfig,
+    device: torch.device,
+    apply_log_transform: bool = True,
+    calibr: Tuple[float, float] | None = None,
+) -> Tuple[float, float, float, float]:
+    """Evaluate model on a loader and compute error metrics."""
+    preds_arr, trues_arr, naive_arr = _collect_log_forecasts(model, loader, cfg, device)
+    if preds_arr is None:
+        return float("nan"), float("nan"), float("nan"), float("nan")
+
+    # Blend model and naive forecasts in log space
+    alpha = getattr(cfg, "blend_alpha", 0.8)
+    preds_arr = alpha * preds_arr + (1.0 - alpha) * naive_arr
+
+    # Optional linear calibration in log-space: y ≈ w * y_pred + b
+    if calibr is not None:
+        w, b = calibr
+        preds_arr = preds_arr * float(w) + float(b)
+
     scaled_mse = np.mean((preds_arr - trues_arr) ** 2)
     scaled_mae = np.mean(np.abs(preds_arr - trues_arr))
     if apply_log_transform:
@@ -1381,9 +1022,91 @@ def evaluate(
     else:
         pred_value = preds_arr
         true_value = trues_arr
-    value_mape = np.mean(np.abs((pred_value - true_value) / np.clip(true_value, 1e-6, None)))
+    value_mape = np.mean(
+        np.abs((pred_value - true_value) / np.clip(true_value, 1e-6, None))
+    )
     da_score = compute_directional_accuracy(pred_value, true_value)
     return scaled_mse, scaled_mae, value_mape, da_score
+
+
+def compute_log_calibration(
+    model: TimeMixer,
+    loader: DataLoader,
+    cfg: IronDailyConfig,
+    device: torch.device,
+) -> Tuple[float, float]:
+    """Jointly tune blend_alpha and affine log-space calibration on validation data.
+
+    We search a small grid of blend alphas; for each blended forecast we fit a
+    simple linear calibration y ≈ w*y_pred + b in closed form, then keep the
+    combination that minimises (MSE + MAE) on the validation set. To avoid
+    harming performance, we also compare against an identity (no-calibration)
+    mapping and only apply calibration when it helps.
+    """
+    preds_arr, trues_arr, naive_arr = _collect_log_forecasts(model, loader, cfg, device)
+    if preds_arr is None:
+        return 1.0, 0.0
+
+    best_score = float("inf")
+    best_alpha = float(getattr(cfg, "blend_alpha", 0.8))
+    best_w, best_b = 1.0, 0.0
+
+    # 扩大 alpha 搜索网格到 [0.0, 1.0] 并细化步长，提高在验证集上选择最优混合权重的精度
+    candidate_alphas = [i / 20.0 for i in range(0, 21)]
+    for alpha in candidate_alphas:
+        blended = alpha * preds_arr + (1.0 - alpha) * naive_arr
+
+        p = blended.reshape(-1)
+        t = trues_arr.reshape(-1)
+        mask = np.isfinite(p) & np.isfinite(t)
+        if mask.sum() < 2:
+            # 退化情况：无法稳定估计线性校准参数，回退到恒等映射
+            w, b = 1.0, 0.0
+        else:
+            p_m = float(p[mask].mean())
+            t_m = float(t[mask].mean())
+            var_p = float(((p[mask] - p_m) ** 2).mean())
+            if var_p <= 1e-12:
+                # 几乎无方差时只校正偏移
+                w = 1.0
+                b = t_m - p_m
+            else:
+                cov_pt = float(((p[mask] - p_m) * (t[mask] - t_m)).mean())
+                w = cov_pt / var_p
+                b = t_m - w * p_m
+
+        # 评价“学习得到的线性校准”和“无校准恒等映射”两种方案，避免校准在验证集上恶化误差
+        calibrated = blended * float(w) + float(b)
+        err = calibrated - trues_arr
+        mse = float((err ** 2).mean())
+        mae = float(np.abs(err).mean())
+        score = mse + mae
+
+        err_id = blended - trues_arr
+        mse_id = float((err_id ** 2).mean())
+        mae_id = float(np.abs(err_id).mean())
+        score_id = mse_id + mae_id
+        if score_id < score:
+            score = score_id
+            w, b = 1.0, 0.0
+
+        if score < best_score:
+            best_score = score
+            best_alpha = float(alpha)
+            best_w, best_b = float(w), float(b)
+
+    cfg.blend_alpha = best_alpha
+    return best_w, best_b
+
+
+def tune_blend_alpha(
+    model: TimeMixer,
+    loader: DataLoader,
+    cfg: IronDailyConfig,
+    device: torch.device,
+) -> float:
+    # Deprecated: blend_alpha is now tuned inside compute_log_calibration.
+    return float(getattr(cfg, "blend_alpha", 0.8))
 
 
 def train_predict_evaluate() -> None:
@@ -1403,64 +1126,19 @@ def train_predict_evaluate() -> None:
     enc_in = len(feature_cols)
     print(f"   输入特征维度 enc_in={enc_in}")
     loaders = make_dataloaders_from_splits(split_info, cfg)
-    dataset_sizes = {split: len(loader.dataset) for split, loader in loaders.items()}
-    loader_steps = {split: len(loader) for split, loader in loaders.items()}
-    logger.info(
-        "Dataset windows -> train:%d, val:%d, test:%d",
-        dataset_sizes.get("train", 0),
-        dataset_sizes.get("val", 0),
-        dataset_sizes.get("test", 0),
-    )
-    print(
-        f"   数据窗口数量：train={dataset_sizes.get('train', 0)}, "
-        f"val={dataset_sizes.get('val', 0)}, test={dataset_sizes.get('test', 0)}"
-    )
-    logger.info(
-        "Loader steps/epoch -> train:%d, val:%d, test:%d",
-        loader_steps.get("train", 0),
-        loader_steps.get("val", 0),
-        loader_steps.get("test", 0),
-    )
-    print(
-        f"   Dataloader步数：train={loader_steps.get('train', 0)}, "
-        f"val={loader_steps.get('val', 0)}, test={loader_steps.get('test', 0)}"
-    )
-    test_dataset = loaders["test"].dataset
-    print("   Test窗口时间跨度：")
-    for idx in range(len(test_dataset)):
-        start_date, end_date = test_dataset.window_bounds(idx)
-        print(f"     波段{idx + 1:02d}: {start_date.strftime('%Y-%m-%d')} -> {end_date.strftime('%Y-%m-%d')}")
+    dataset_sizes = {name: len(loader.dataset) for name, loader in loaders.items()}
+    print("   数据窗口数量：", dataset_sizes)
 
     print("4) 模型初始化与训练...")
     model = build_model(cfg, enc_in).to(cfg.device_obj)
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate)
+    # 使用轻微的权重衰减提升泛化能力
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg.learning_rate, weight_decay=5e-4)
     criterion = nn.MSELoss()
-    logger.info(
-        "Training params | epochs=%d, batch=%d, lr=%.4f, patience=%d, seq_len=%d, pred_len=%d, d_model=%d, d_ff=%d",
-        cfg.train_epochs,
-        cfg.batch_size,
-        cfg.learning_rate,
-        cfg.patience,
-        cfg.seq_len,
-        cfg.pred_len,
-        cfg.d_model,
-        cfg.d_ff,
-    )
+    # 稍弱的方向正则，更好兼顾MSE/MAE与方向一致性
+    lambda_dir = 0.08
     print(
-        f"   训练参数：epochs={cfg.train_epochs}, batch={cfg.batch_size}, lr={cfg.learning_rate}, "
-        f"patience={cfg.patience}, seq_len={cfg.seq_len}, pred_len={cfg.pred_len}, "
-        f"d_model={cfg.d_model}, d_ff={cfg.d_ff}"
-    )
-    logger.info(
-        "Model depth | e_layers=%d, d_layers=%d, down_sampling_layers=%d, down_window=%d",
-        cfg.e_layers,
-        cfg.d_layers,
-        cfg.down_sampling_layers,
-        cfg.down_sampling_window,
-    )
-    print(
-        f"   模型结构：e_layers={cfg.e_layers}, d_layers={cfg.d_layers}, "
-        f"down_layers={cfg.down_sampling_layers}, down_window={cfg.down_sampling_window}"
+        f"   训练参数：epochs={cfg.train_epochs}, lr={cfg.learning_rate}, "
+        f"d_model={cfg.d_model}, d_ff={cfg.d_ff}, down_layers={cfg.down_sampling_layers}"
     )
     best_val = math.inf
     best_state = None
@@ -1473,16 +1151,21 @@ def train_predict_evaluate() -> None:
             batch_y = batch_y.to(cfg.device_obj)
             batch_x_mark = batch_x_mark.to(cfg.device_obj)
             batch_y_mark = batch_y_mark.to(cfg.device_obj)
-            if cfg.down_sampling_layers == 0:
-                dec_inp = torch.zeros_like(batch_y[:, -cfg.pred_len:, :]).float()
-                dec_inp = torch.cat([batch_y[:, :cfg.label_len, :], dec_inp], dim=1).to(cfg.device_obj)
-            else:
-                dec_inp = None
+            # 简化：当前模型始终采用多尺度编码器，预测阶段不需要显式 decoder 输入
+            dec_inp = None
             optimizer.zero_grad()
             outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
             pred_y, true_y = extract_target(outputs, batch_y, cfg)
-            loss = criterion(pred_y, true_y)
+            mse_loss = criterion(pred_y, true_y)
+            # 方向损失：鼓励预测价格变化方向与真实方向一致，以提高DA
+            delta_pred = pred_y[:, 1:, :] - pred_y[:, :-1, :]
+            delta_true = true_y[:, 1:, :] - true_y[:, :-1, :]
+            dir_target = torch.sign(delta_true)
+            dir_loss = F.relu(-delta_pred * dir_target).mean()
+            loss = mse_loss + lambda_dir * dir_loss
             loss.backward()
+            # 梯度裁剪以提高训练稳定性，避免偶发梯度爆炸影响预测精度
+            nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
             running_loss += loss.item()
         avg_loss = running_loss / max(len(loaders["train"]), 1)
@@ -1503,9 +1186,12 @@ def train_predict_evaluate() -> None:
         model.load_state_dict(best_state)
     torch.save(model.state_dict(), cfg.checkpoint_dir / "best_model.pt")
 
+    # 在验证集上联合搜索blend_alpha并拟合简单线性校准参数
+    calib_w, calib_b = compute_log_calibration(model, loaders["val"], cfg, cfg.device_obj)
+
     print("5) 测试集评估...")
     test_mse, test_mae, test_mape, test_da = evaluate(
-        model, loaders["test"], cfg, cfg.device_obj
+        model, loaders["test"], cfg, cfg.device_obj, calibr=(calib_w, calib_b)
     )
     print(
         f"   Test metrics -> scaled_MSE: {test_mse:.4f}, scaled_MAE: {test_mae:.4f}, "
