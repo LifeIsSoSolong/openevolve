@@ -30,7 +30,7 @@ def construct_real_path(root):
     return TRAIN_PATH, VAL_PATH, TEST_PATH, SUBMISSION_PATH
 
 
-
+# EVOLVE-BLOCK-START
 def encode_state(df: pd.DataFrame, mapping: dict[str, int] | None = None) -> tuple[pd.DataFrame, dict[str, int]]:
     df = df.copy()
     if mapping is None:
@@ -131,7 +131,7 @@ def main(root) -> tuple[pd.DataFrame, dict[str, float]]:
     submission[target] = preds
 
     return submission, metrics
-
+# EVOLVE-BLOCK-END
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
