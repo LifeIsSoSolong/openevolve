@@ -89,62 +89,59 @@ def main(root) -> tuple[pd.DataFrame, dict[str, float]]:
     if len(train_df) < before_drop:
         LOGGER.info("Dropped %d rows with missing target from training set", before_drop - len(train_df))
 
-    # ---------- feature engineering (cyclical time features; avoid target-encoding overfit) ----------
-    min_year = float(train_df["year"].min()) if "year" in train_df.columns else 0.0
+    # ---------- feature engineering + smoothed target encodings (stable, strong) ----------
+    for _df in (train_df, val_df, test_df):
+        _df["month_sin"] = np.sin(2 * np.pi * _df["month"].to_numpy() / 12.0)
+        _df["month_cos"] = np.cos(2 * np.pi * _df["month"].to_numpy() / 12.0)
+        if "months_since_crop_start" in _df.columns:
+            _df["mcs_sin"] = np.sin(2 * np.pi * _df["months_since_crop_start"].to_numpy() / 12.0)
+            _df["mcs_cos"] = np.cos(2 * np.pi * _df["months_since_crop_start"].to_numpy() / 12.0)
+        _df["year_sq"] = _df["year"].to_numpy() ** 2
 
-    def _fe(df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        m = df["month"].astype(float)
-        df["month_sin"] = np.sin(2 * np.pi * m / 12.0)
-        df["month_cos"] = np.cos(2 * np.pi * m / 12.0)
-        msc = df["months_since_crop_start"].astype(float)
-        df["msc_sin"] = np.sin(2 * np.pi * msc / 12.0)
-        df["msc_cos"] = np.cos(2 * np.pi * msc / 12.0)
-        if "year" in df.columns:
-            df["year_trend"] = df["year"].astype(float) - min_year
+    # optionally use labeled validation rows for training signal
+    val_train = val_df.dropna(subset=[target]) if (target in val_df.columns) else val_df.iloc[0:0].copy()
+    train_all = pd.concat([train_df, val_train], ignore_index=True) if len(val_train) else train_df
+
+    # smoothed mean target encoding: state, state-month (train-only leakage-safe)
+    global_mean = float(train_all[target].mean())
+    alpha = 20.0
+    g_state = train_all.groupby("state_enc")[target].agg(["mean", "count"])
+    g_state["te_state"] = (g_state["mean"] * g_state["count"] + global_mean * alpha) / (g_state["count"] + alpha)
+    te_state = g_state[["te_state"]].reset_index()
+
+    g_sm = train_all.groupby(["state_enc", "month"])[target].agg(["mean", "count"])
+    g_sm["te_state_month"] = (g_sm["mean"] * g_sm["count"] + global_mean * alpha) / (g_sm["count"] + alpha)
+    te_state_month = g_sm[["te_state_month"]].reset_index()
+
+    def _merge_te(df: pd.DataFrame) -> pd.DataFrame:
+        df = df.merge(te_state, on="state_enc", how="left")
+        df = df.merge(te_state_month, on=["state_enc", "month"], how="left")
+        df["te_state"] = df["te_state"].fillna(global_mean)
+        df["te_state_month"] = df["te_state_month"].fillna(df["te_state"])
         return df
 
-    train_df = _fe(train_df)
-    val_df = _fe(val_df)
-    test_df = _fe(test_df)
+    train_all = _merge_te(train_all)
+    train_df = _merge_te(train_df)
+    val_df = _merge_te(val_df)
+    test_df = _merge_te(test_df)
 
-    features = [c for c in train_df.columns if c not in {target, "state"}]
-    med = train_df[features].median(numeric_only=True)
-    for _d in (train_df, val_df, test_df):
-        _d[features] = _d[features].fillna(med)
+    features = [c for c in train_all.columns if c not in {target, "state"}]
 
-    cat_feats = [c for c in ["state_enc", "month_cat", "state_cat", "year_cat"] if c in features]
-
-    # ---------- train (raw target + early stopping on val if available) ----------
-    y_train = train_df[target].to_numpy()
+    # ---------- train (log-target tends to reduce MAPE/relative error) ----------
+    y_tr = np.log1p(np.clip(train_all[target].to_numpy(), 0, None))
     model = LGBMRegressor(
-        n_estimators=4000,
+        n_estimators=4500,
         learning_rate=0.03,
-        num_leaves=63,
+        num_leaves=127,
         min_child_samples=30,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        reg_alpha=0.0,
-        reg_lambda=1.0,
+        subsample=0.9,
+        colsample_bytree=0.9,
+        reg_alpha=0.1,
+        reg_lambda=0.5,
         random_state=42,
+        n_jobs=-1,
     )
-
-    fit_kwargs: dict = {}
-    if target in val_df.columns and val_df[target].notna().any():
-        val_fit = val_df.dropna(subset=[target])
-        fit_kwargs = dict(eval_set=[(val_fit[features], val_fit[target].to_numpy())], eval_metric="rmse")
-        try:  # lightgbm>=3
-            from lightgbm import early_stopping, log_evaluation
-
-            fit_kwargs["callbacks"] = [early_stopping(200, verbose=False), log_evaluation(period=0)]
-        except Exception:
-            fit_kwargs["early_stopping_rounds"] = 200
-            fit_kwargs["verbose"] = False
-
-    if cat_feats:
-        model.fit(train_df[features], y_train, categorical_feature=cat_feats, **fit_kwargs)
-    else:
-        model.fit(train_df[features], y_train, **fit_kwargs)
+    model.fit(train_all[features], y_tr)
 
     # ---------- validate (same logic) ----------
     metrics: dict[str, float] = {"val_rmse": float("nan"), "val_rrmse": float("nan"), "val_mape": float("nan")}
@@ -155,7 +152,7 @@ def main(root) -> tuple[pd.DataFrame, dict[str, float]]:
         if len(val_df2) < before_val_drop:
             LOGGER.info("Dropped %d rows with missing target from validation set", before_val_drop - len(val_df2))
         if len(val_df2):
-            val_pred = np.clip(model.predict(val_df2[features]), 0, None)
+            val_pred = np.expm1(model.predict(val_df2[features]))
             m = _eval_metrics(val_df2[target].to_numpy(), val_pred)
             metrics.update({"val_rmse": m["rmse"], "val_rrmse": m["rrmse"], "val_mape": m["mape"]})
             LOGGER.info(
@@ -170,7 +167,7 @@ def main(root) -> tuple[pd.DataFrame, dict[str, float]]:
         LOGGER.info("Validation set has no target column '%s'; skip val metrics", target)
 
     # ---------- inference + submission ----------
-    preds = np.clip(model.predict(test_df[features]), 0, None)
+    preds = np.expm1(model.predict(test_df[features]))
     submission = test_df[["year", "month", "state"]].copy()
     submission[target] = preds
 

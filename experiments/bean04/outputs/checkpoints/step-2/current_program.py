@@ -83,69 +83,58 @@ def main(root) -> tuple[pd.DataFrame, dict[str, float]]:
     val_df = _apply(val_df)
     test_df = _apply(test_df)
 
-    # ---------- drop NaN targets in train ----------
+    # basic cyclic/time features
+    for _df in (train_df, val_df, test_df):
+        _df["month_sin"] = np.sin(2 * np.pi * _df["month"].to_numpy() / 12.0)
+        _df["month_cos"] = np.cos(2 * np.pi * _df["month"].to_numpy() / 12.0)
+        _df["year_sq"] = _df["year"].to_numpy() ** 2
+
+    # ---------- drop NaN targets in train / optionally use val labels ----------
     before_drop = len(train_df)
     train_df = train_df.dropna(subset=[target])
     if len(train_df) < before_drop:
         LOGGER.info("Dropped %d rows with missing target from training set", before_drop - len(train_df))
+    val_train = val_df.dropna(subset=[target]) if (target in val_df.columns) else val_df.iloc[0:0].copy()
+    train_all = pd.concat([train_df, val_train], ignore_index=True) if len(val_train) else train_df
 
-    # ---------- feature engineering (cyclical month + target encodings from train only) ----------
-    global_mean = float(train_df[target].mean())
-    st_mean = train_df.groupby("state_enc")[target].mean()
-    stmo = train_df.groupby(["state_enc", "month"])[target].mean().rename("te_state_month").reset_index()
+    # smoothed target encoding (state, state-month)
+    global_mean = float(train_all[target].mean())
+    alpha = 20.0
+    g1 = train_all.groupby("state_enc")[target].agg(["mean", "count"])
+    g1["te_state"] = (g1["mean"] * g1["count"] + global_mean * alpha) / (g1["count"] + alpha)
+    te_state = g1[["te_state"]].reset_index()
+    g2 = train_all.groupby(["state_enc", "month"])[target].agg(["mean", "count"])
+    g2["te_state_month"] = (g2["mean"] * g2["count"] + global_mean * alpha) / (g2["count"] + alpha)
+    te_state_month = g2[["te_state_month"]].reset_index()
 
-    def _fe(df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        m = df["month"].astype(float)
-        df["month_sin"] = np.sin(2 * np.pi * m / 12.0)
-        df["month_cos"] = np.cos(2 * np.pi * m / 12.0)
-        df["te_state"] = df["state_enc"].map(st_mean).fillna(global_mean)
-        df = df.merge(stmo, on=["state_enc", "month"], how="left")
-        df["te_state_month"] = df["te_state_month"].fillna(global_mean)
+    def _merge_te(df: pd.DataFrame) -> pd.DataFrame:
+        df = df.merge(te_state, on="state_enc", how="left")
+        df = df.merge(te_state_month, on=["state_enc", "month"], how="left")
+        df["te_state"] = df["te_state"].fillna(global_mean)
+        df["te_state_month"] = df["te_state_month"].fillna(df["te_state"])
         return df
 
-    train_df = _fe(train_df)
-    val_df = _fe(val_df)
-    test_df = _fe(test_df)
+    train_all = _merge_te(train_all)
+    train_df = _merge_te(train_df)
+    val_df = _merge_te(val_df)
+    test_df = _merge_te(test_df)
 
-    features = [c for c in train_df.columns if c not in {target, "state"}]
-    med = train_df[features].median(numeric_only=True)
-    train_df[features] = train_df[features].fillna(med)
-    val_df[features] = val_df[features].fillna(med)
-    test_df[features] = test_df[features].fillna(med)
+    features = [c for c in train_all.columns if c not in {target, "state"}]
 
-    cat_feats = [c for c in ["state_enc", "month_cat", "state_cat", "year_cat"] if c in features]
-
-    # ---------- train (log1p target + early stopping on val if available) ----------
-    y_train = np.log1p(train_df[target].to_numpy())
+    # ---------- train (log-target, more regularization) ----------
+    y_tr = np.log1p(np.clip(train_all[target].to_numpy(), 0, None))
     model = LGBMRegressor(
-        n_estimators=6000,
-        learning_rate=0.02,
+        n_estimators=4000,
+        learning_rate=0.03,
         num_leaves=127,
-        min_child_samples=20,
-        subsample=0.85,
-        colsample_bytree=0.85,
+        min_child_samples=30,
+        subsample=0.9,
+        colsample_bytree=0.9,
         reg_alpha=0.1,
-        reg_lambda=0.3,
+        reg_lambda=0.5,
         random_state=42,
     )
-
-    fit_kwargs: dict = {}
-    if target in val_df.columns and val_df[target].notna().any():
-        val_fit = val_df.dropna(subset=[target])
-        fit_kwargs = dict(eval_set=[(val_fit[features], np.log1p(val_fit[target].to_numpy()))], eval_metric="rmse")
-        try:  # lightgbm>=3
-            from lightgbm import early_stopping
-
-            fit_kwargs["callbacks"] = [early_stopping(200, verbose=False)]
-        except Exception:
-            fit_kwargs["early_stopping_rounds"] = 200
-            fit_kwargs["verbose"] = False
-
-    if cat_feats:
-        model.fit(train_df[features], y_train, categorical_feature=cat_feats, **fit_kwargs)
-    else:
-        model.fit(train_df[features], y_train, **fit_kwargs)
+    model.fit(train_all[features], y_tr)
 
     # ---------- validate (same logic) ----------
     metrics: dict[str, float] = {"val_rmse": float("nan"), "val_rrmse": float("nan"), "val_mape": float("nan")}

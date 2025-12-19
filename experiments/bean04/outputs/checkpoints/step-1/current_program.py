@@ -74,11 +74,6 @@ def main(root) -> tuple[pd.DataFrame, dict[str, float]]:
 
     def _apply(df: pd.DataFrame) -> pd.DataFrame:
         df = months_since_crop_start(df)
-        # cyclical month features (helps trees generalize across year boundaries)
-        df["m_sin"] = np.sin(2 * np.pi * df["month"] / 12.0)
-        df["m_cos"] = np.cos(2 * np.pi * df["month"] / 12.0)
-        df["msc_sin"] = np.sin(2 * np.pi * df["months_since_crop_start"] / 12.0)
-        df["msc_cos"] = np.cos(2 * np.pi * df["months_since_crop_start"] / 12.0)
         for col in ["month_cat", "state_cat", "year_cat"]:
             if col in df.columns:
                 df[col] = df[col].astype("category").cat.codes
@@ -94,68 +89,93 @@ def main(root) -> tuple[pd.DataFrame, dict[str, float]]:
     if len(train_df) < before_drop:
         LOGGER.info("Dropped %d rows with missing target from training set", before_drop - len(train_df))
 
-    # ---------- lightweight target encoding (state, month, state-month) ----------
+    # ---------- feature engineering (light + robust) ----------
+    train_min_year = int(train_df["year"].min()) if "year" in train_df.columns else 0
+
+    def _fe(df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        if "month" in df.columns:
+            ang = 2 * np.pi * df["month"].astype(float) / 12.0
+            df["month_sin"] = np.sin(ang)
+            df["month_cos"] = np.cos(ang)
+        if "year" in df.columns:
+            df["year_idx"] = df["year"] - train_min_year
+        if {"state_enc", "year_idx"}.issubset(df.columns):
+            df["state_year"] = df["state_enc"] * 100 + df["year_idx"]
+        if {"state_enc", "month"}.issubset(df.columns):
+            df["state_month"] = df["state_enc"] * 100 + df["month"]
+        return df
+
+    train_df = _fe(train_df)
+    val_df = _fe(val_df)
+    test_df = _fe(test_df)
+
+    # target-based aggregates from train only (regularized via hierarchical fallback)
     global_mean = float(train_df[target].mean())
-    k = 20.0  # smoothing strength
+    state_mean = train_df.groupby("state_enc")[target].mean()
+    month_mean = train_df.groupby("month")[target].mean()
+    sm_mean = (
+        train_df.groupby(["state_enc", "month"])[target].mean().rename("state_month_mean_y").reset_index()
+        if {"state_enc", "month"}.issubset(train_df.columns)
+        else pd.DataFrame(columns=["state_enc", "month", "state_month_mean_y"])
+    )
 
-    def _add_te(df: pd.DataFrame, keys: list[str], out_col: str) -> pd.DataFrame:
-        agg = train_df.groupby(keys)[target].agg(["mean", "count"]).reset_index()
-        df = df.merge(agg, on=keys, how="left")
-        cnt = df["count"].fillna(0.0)
-        mu = df["mean"].fillna(global_mean)
-        df[out_col] = (cnt * mu + k * global_mean) / (cnt + k)
-        return df.drop(columns=["mean", "count"])
+    def _attach_stats(df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        if "state_enc" in df.columns:
+            df["state_mean_y"] = df["state_enc"].map(state_mean).fillna(global_mean)
+        else:
+            df["state_mean_y"] = global_mean
+        if "month" in df.columns:
+            df["month_mean_y"] = df["month"].map(month_mean).fillna(global_mean)
+        else:
+            df["month_mean_y"] = global_mean
+        if len(sm_mean) and {"state_enc", "month"}.issubset(df.columns):
+            df = df.merge(sm_mean, on=["state_enc", "month"], how="left")
+            df["state_month_mean_y"] = df["state_month_mean_y"].fillna(df["state_mean_y"])
+        else:
+            df["state_month_mean_y"] = df["state_mean_y"]
+        return df
 
-    for keys, out_col in [
-        (["state_enc"], "te_state"),
-        (["month"], "te_month"),
-        (["state_enc", "month"], "te_state_month"),
-    ]:
-        train_df = _add_te(train_df, keys, out_col)
-        val_df = _add_te(val_df, keys, out_col)
-        test_df = _add_te(test_df, keys, out_col)
+    train_df = _attach_stats(train_df)
+    val_df = _attach_stats(val_df)
+    test_df = _attach_stats(test_df)
 
     features = [c for c in train_df.columns if c not in {target, "state"}]
 
-    # ---------- train (log1p target + early stopping on val when available) ----------
-    try:  # pragma: no cover
-        from lightgbm import early_stopping, log_evaluation
-    except Exception:  # pragma: no cover
-        early_stopping = None  # type: ignore
-        log_evaluation = None  # type: ignore
+    # optional early-stopping set (in log space)
+    val_df_es = None
+    if target in val_df.columns and len(val_df):
+        _tmp = val_df.dropna(subset=[target])
+        if len(_tmp):
+            val_df_es = _tmp
 
+    # ---------- train (log1p target improves relative error stability) ----------
+    y_train = np.log1p(train_df[target].clip(lower=0))
     model = LGBMRegressor(
         n_estimators=6000,
         learning_rate=0.03,
         num_leaves=127,
-        min_child_samples=20,
+        min_child_samples=25,
         subsample=0.85,
         colsample_bytree=0.85,
         reg_alpha=0.1,
-        reg_lambda=1.0,
+        reg_lambda=0.2,
         random_state=42,
+        n_jobs=-1,
     )
-
-    y_tr = np.log1p(train_df[target].to_numpy())
-    X_tr = train_df[features]
-
-    callbacks = []
-    if early_stopping is not None:
-        callbacks.append(early_stopping(stopping_rounds=250, verbose=False))
-    if log_evaluation is not None:
-        callbacks.append(log_evaluation(period=0))
-
-    if target in val_df.columns and len(val_df.dropna(subset=[target])):
-        val_df_fit = val_df.dropna(subset=[target])
+    if val_df_es is not None:
+        y_es = np.log1p(val_df_es[target].clip(lower=0))
         model.fit(
-            X_tr,
-            y_tr,
-            eval_set=[(val_df_fit[features], np.log1p(val_df_fit[target].to_numpy()))],
+            train_df[features],
+            y_train,
+            eval_set=[(val_df_es[features], y_es)],
             eval_metric="rmse",
-            callbacks=callbacks if callbacks else None,
+            early_stopping_rounds=200,
+            verbose=False,
         )
     else:
-        model.fit(X_tr, y_tr)
+        model.fit(train_df[features], y_train)
 
     # ---------- validate (same logic) ----------
     metrics: dict[str, float] = {"val_rmse": float("nan"), "val_rrmse": float("nan"), "val_mape": float("nan")}
@@ -167,7 +187,6 @@ def main(root) -> tuple[pd.DataFrame, dict[str, float]]:
             LOGGER.info("Dropped %d rows with missing target from validation set", before_val_drop - len(val_df2))
         if len(val_df2):
             val_pred = np.expm1(model.predict(val_df2[features]))
-            val_pred = np.clip(val_pred, 0, None)
             m = _eval_metrics(val_df2[target].to_numpy(), val_pred)
             metrics.update({"val_rmse": m["rmse"], "val_rrmse": m["rrmse"], "val_mape": m["mape"]})
             LOGGER.info(
@@ -183,7 +202,6 @@ def main(root) -> tuple[pd.DataFrame, dict[str, float]]:
 
     # ---------- inference + submission ----------
     preds = np.expm1(model.predict(test_df[features]))
-    preds = np.clip(preds, 0, None)
     submission = test_df[["year", "month", "state"]].copy()
     submission[target] = preds
 
