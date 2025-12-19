@@ -20,17 +20,13 @@ LOGGER = logging.getLogger(__name__)
 def construct_real_path(root):
     PROJECT_ROOT = Path(root)
     INPUT_DIR = PROJECT_ROOT
-    OUTPUT_DIR = PROJECT_ROOT.parent / "outputs" / "submission"
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    TRAIN_PATH = INPUT_DIR / "train_2m.csv"
-    VAL_PATH = INPUT_DIR / "val_2m.csv"
-    TEST_PATH = INPUT_DIR / "test_2m_split.csv"
-    SUBMISSION_PATH = OUTPUT_DIR / "submission.csv"
+    TRAIN_PATH = INPUT_DIR / "train.csv"
+    TEST_PATH = INPUT_DIR / "test.csv"
 
-    return TRAIN_PATH, VAL_PATH, TEST_PATH, SUBMISSION_PATH
+    return TRAIN_PATH, TEST_PATH
 
 
-
+# EVOLVE-BLOCK-START
 def encode_state(df: pd.DataFrame, mapping: dict[str, int] | None = None) -> tuple[pd.DataFrame, dict[str, int]]:
     df = df.copy()
     if mapping is None:
@@ -56,20 +52,17 @@ def _eval_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
 
 def main(root) -> tuple[pd.DataFrame, dict[str, float]]:
     # ---------- load ----------
-    TRAIN_PATH, VAL_PATH, TEST_PATH, _ = construct_real_path(root)
+    TRAIN_PATH, TEST_PATH = construct_real_path(root)
 
     LOGGER.info("Loading train: %s", TRAIN_PATH)
-    LOGGER.info("Loading val  : %s", VAL_PATH)
     LOGGER.info("Loading test : %s", TEST_PATH)
     train_df = pd.read_csv(TRAIN_PATH)
-    val_df = pd.read_csv(VAL_PATH)
     test_df = pd.read_csv(TEST_PATH)
 
     target = "yield"
 
     # ---------- preprocess (keep behavior identical) ----------
     train_df, state2idx = encode_state(train_df)
-    val_df, _ = encode_state(val_df, mapping=state2idx)
     test_df, _ = encode_state(test_df, mapping=state2idx)
 
     def _apply(df: pd.DataFrame) -> pd.DataFrame:
@@ -80,7 +73,6 @@ def main(root) -> tuple[pd.DataFrame, dict[str, float]]:
         return df
 
     train_df = _apply(train_df)
-    val_df = _apply(val_df)
     test_df = _apply(test_df)
 
     features = [c for c in train_df.columns if c not in {target, "state"}]
@@ -103,43 +95,34 @@ def main(root) -> tuple[pd.DataFrame, dict[str, float]]:
     model.fit(train_df[features], train_df[target])
 
     # ---------- validate (same logic) ----------
-    metrics: dict[str, float] = {"val_rmse": float("nan"), "val_rrmse": float("nan"), "val_mape": float("nan")}
+    metrics: dict[str, float] = {"rmse": float("nan"), "rrmse": float("nan"), "mape": float("nan")}
 
-    if target in val_df.columns and len(val_df):
-        before_val_drop = len(val_df)
-        val_df2 = val_df.dropna(subset=[target])
-        if len(val_df2) < before_val_drop:
-            LOGGER.info("Dropped %d rows with missing target from validation set", before_val_drop - len(val_df2))
-        if len(val_df2):
-            val_pred = model.predict(val_df2[features])
-            m = _eval_metrics(val_df2[target].to_numpy(), val_pred)
-            metrics.update({"val_rmse": m["rmse"], "val_rrmse": m["rrmse"], "val_mape": m["mape"]})
+    if target in test_df.columns and len(test_df):
+        before_drop = len(test_df)
+        test_df2 = test_df.dropna(subset=[target])
+        if len(test_df2) < before_drop:
+            LOGGER.info("Dropped %d rows with missing target from test set", before_drop - len(test_df2))
+        if len(test_df2):
+            val_pred = model.predict(test_df2[features])
+            m = _eval_metrics(test_df2[target].to_numpy(), val_pred)
+            metrics.update({"rmse": m["rmse"], "rrmse": m["rrmse"], "mape": m["mape"]})
             LOGGER.info(
-                "VAL -> RMSE: %.6f | rRMSE: %.6f%% | MAPE: %.6f%%",
-                metrics["val_rmse"],
-                metrics["val_rrmse"],
-                metrics["val_mape"],
+                "Test -> RMSE: %.6f | rRMSE: %.6f%% | MAPE: %.6f%%",
+                metrics["rmse"],
+                metrics["rrmse"],
+                metrics["mape"],
             )
         else:
-            LOGGER.info("Validation set has target column but all targets are NaN; skip metrics")
+            LOGGER.info("Test set has target column but all targets are NaN; skip metrics")
     else:
-        LOGGER.info("Validation set has no target column '%s'; skip val metrics", target)
+        LOGGER.info("Test set has no target column '%s'; skip val metrics", target)
 
-    # ---------- inference + submission ----------
-    preds = model.predict(test_df[features])
-    submission = test_df[["year", "month", "state"]].copy()
-    submission[target] = preds
-
-    return submission, metrics
-
+    return metrics
+# EVOLVE-BLOCK-END
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s - %(message)s")
-    root = r"D:\清华工程博士\C3I\daguan\agentic-rl\mle-openevolve\experiments\bean04\baseline\2months"
+    root = r"D:\清华工程博士\C3I\AutoMLAgent\openevolve\experiments\bean05\inputs"
 
-    submission, metrics = main(root)
-
-    _, _, _, SUBMISSION_PATH = construct_real_path(root)
-    submission.to_csv(SUBMISSION_PATH, index=False)
-    LOGGER.info("Saved submission -> %s", SUBMISSION_PATH)
-    LOGGER.info("Metrics dict -> %s", metrics)
+    metrics = main(root)
+    print(metrics)
