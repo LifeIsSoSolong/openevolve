@@ -1,0 +1,71 @@
+{
+  "algorithm": {
+    "adv_estimator": "grpo",
+    "use_kl_in_reward": false
+  },
+  "agentlightning": {
+    "port": 9999
+  },
+  "data": {
+    "train_batch_size": 16,
+    "max_prompt_length": 2048,
+    "max_response_length": 2048,
+    "truncation": "error"
+  },
+  "actor_rollout_ref": {
+    "rollout": {
+      "tensor_model_parallel_size": 1,
+      "n": 2,
+      "log_prob_micro_batch_size_per_gpu": 4,
+      "multi_turn": {
+        "format": "hermes"
+      },
+      "name": "vllm",
+      "gpu_memory_utilization": 0.6,
+      "engine_kwargs": {
+        "vllm": {
+          "enable_auto_tool_choice": false
+        }
+      }
+    },
+    "actor": {
+      "ppo_mini_batch_size": 16,
+      "ppo_micro_batch_size_per_gpu": 4,
+      "optim": {
+        "lr": 1e-6
+      },
+      "use_kl_loss": false,
+      "kl_loss_coef": 0.0,
+      "entropy_coeff": 0,
+      "clip_ratio_low": 0.2,
+      "clip_ratio_high": 0.3,
+      "fsdp_config": {
+        "param_offload": true,
+        "optimizer_offload": true
+      }
+    },
+    "ref": {
+      "log_prob_micro_batch_size_per_gpu": 8,
+      "fsdp_config": {
+        "param_offload": true
+      }
+    },
+    "model": {
+      "path": "/hpc_data/ktian/models/Qwen3-4B-Instruct-2507",
+      "use_remove_padding": true,
+      "enable_gradient_checkpointing": true
+    }
+  },
+  "trainer": {
+    "n_gpus_per_node": 4,
+    "val_before_train": true,
+    "critic_warmup": 0,
+    "logger": ["file"],
+    "project_name": "AgentLightning",
+    "experiment_name": "math",
+    "nnodes": 1,
+    "test_freq": 64,
+    "save_freq": 100000,
+    "total_epochs": 5
+  }
+}

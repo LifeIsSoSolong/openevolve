@@ -1,0 +1,6 @@
+{"step": 0, "type": "eval", "accuracy": 1.0, "timestamp": 1765260894}
+{"step": 1, "type": "train", "loss": 0.21537050604820251, "reward": 0.84375, "timestamp": 1765260968}
+{"step": 2, "type": "train", "loss": 0.2269214689731598, "reward": 0.8125, "timestamp": 1765261043}
+{"step": 3, "type": "train", "loss": 0.19944724440574646, "reward": 0.8125, "timestamp": 1765261128}
+{"step": 4, "type": "train", "loss": 0.19730183482170105, "reward": 0.8125, "timestamp": 1765261204}
+{"step": 5, "type": "eval", "accuracy": 1.0, "timestamp": 1765261375}

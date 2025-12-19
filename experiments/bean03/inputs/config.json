@@ -1,0 +1,37 @@
+{
+    "algorithm": "alpha_evolve",
+    "task_type": "mle",
+    "max_iterations": 5,
+    "checkpoint_interval": 1,
+    "log_level": "INFO",
+    "random_seed": 42,
+    "llm": {
+        "primary_model": "gpt-5.2",
+        "primary_model_weight": 0.8,
+        "secondary_model": "gpt-5.2",
+        "secondary_model_weight": 0.2,
+        "temperature": 0.5,
+        "max_tokens": 60000,
+        "timeout": 300
+    },
+    "database": {
+        "population_size": 16,
+        "archive_size": 8,
+        "num_islands": 2,
+        "elite_selection_ratio": 0.25,
+        "exploitation_ratio": 0.6
+    },
+    "evaluator": {
+        "timeout": 3000,
+        "parallel_evaluations": 1
+    },
+    "evolution_trace": {
+        "enabled": true,
+        "format": "jsonl",
+        "include_code": true,
+        "include_prompts": true,
+        "output_path": null,
+        "buffer_size": 1,
+        "compress": false
+    }
+}

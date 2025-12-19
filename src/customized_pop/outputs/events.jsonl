@@ -1,0 +1,11 @@
+{"step": 0, "type": "eval", "accuracy": 0.375, "timestamp": 1765180931}
+{"step": 1, "type": "train", "accuracy": 0.40625, "timestamp": 1765180960}
+{"step": 1, "type": "eval", "accuracy": 0.5, "timestamp": 1765180986}
+{"step": 2, "type": "train", "accuracy": 0.53125, "timestamp": 1765181039}
+{"step": 2, "type": "eval", "accuracy": 0.5625, "timestamp": 1765181074}
+{"step": 3, "type": "train", "accuracy": 0.59375, "timestamp": 1765181163}
+{"step": 3, "type": "eval", "accuracy": 0.5, "timestamp": 1765181188}
+{"step": 4, "type": "train", "accuracy": 0.5625, "timestamp": 1765181264}
+{"step": 4, "type": "eval", "accuracy": 0.5, "timestamp": 1765181288}
+{"step": 5, "type": "train", "accuracy": 0.53125, "timestamp": 1765181359}
+{"step": 5, "type": "eval", "accuracy": 0.5, "timestamp": 1765181392}

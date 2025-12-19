@@ -1,0 +1,46 @@
+{
+    "algorithm": "mle-openevolve",
+    "task_type": "bean",
+    "max_iterations": 20,
+    "checkpoint_interval": 1,
+    "log_level": "INFO",
+    "random_seed": 42,
+    "llm": {
+        "primary_model": "gpt-5.1",
+        "primary_model_weight": 0.8,
+        "secondary_model": "gpt-5.1",
+        "secondary_model_weight": 0.2,
+        "api_base": "http://35.164.11.19:3887/v1",
+        "api_key": "sk-DOnUAnR18NW7Yp3OCp9sfWTgyFPOTURpGovP9EFIrTNEzozV",
+        "temperature": 0.5,
+        "max_tokens": 60000,
+        "timeout": 300,
+        "reasoning_effort": "medium"
+    },
+    "prompt": {
+        "system_message": "You are optimizing bean_test exp2 for Brazilian soybean yield. Goal: minimize MAPE/RMSE on the held-out test set used by evaluator.py.\\n\\nHard constraints:\\n- Only modify code inside the EVOLVE-BLOCK; do not touch any other code, function signatures, paths, or helpers.\\n- Keep the script runnable standalone: read ./input/train.csv & ./input/test.csv; write ./output/submission.csv with columns [year, month, state, yield].\\n- Preserve feature pipeline basics (state encoding, months_since_crop_start); do not drop all features.\\n- You can use any other standard Python libraries for better model.\\n\\nFreedom:\\n- Inside EVOLVE-BLOCK you may change model type (LightGBM/CatBoost/XGBoost/linear/NN/heuristics/FFN), features, and hyperparameters to improve accuracy.\\n\\nOutput format:\\n- Respond ONLY with valid SEARCH/REPLACE diffs for the EVOLVE-BLOCK. If you cannot propose a valid diff, return an empty diff."
+    },
+    "database": {
+        "population_size": 16,
+        "archive_size": 8,
+        "num_islands": 2,
+        "elite_selection_ratio": 0.25,
+        "exploitation_ratio": 0.6
+    },
+    "evaluator": {
+        "timeout": 300,
+        "parallel_evaluations": 1,
+        "cascade_evaluation": false
+    },
+    "evolution_trace": {
+        "enabled": true,
+        "format": "jsonl",
+        "include_code": true,
+        "include_prompts": false,
+        "output_path": null,
+        "buffer_size": 10,
+        "compress": false
+    },
+    "diff_based_evolution": true,
+    "max_code_length": 60000
+}

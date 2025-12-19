@@ -1,0 +1,37 @@
+{
+    "algorithm": "mle-openevolve",
+    "task_type": "iron",
+    "max_iterations": 5,
+    "checkpoint_interval": 1,
+    "log_level": "INFO",
+    "random_seed": 42,
+    "llm": {
+        "primary_model": "gpt-5.1",
+        "primary_model_weight": 0.8,
+        "secondary_model": "gpt-5.1",
+        "secondary_model_weight": 0.2,
+        "api_base": "http://35.164.11.19:3887/v1",
+        "api_key": "sk-DOnUAnR18NW7Yp3OCp9sfWTgyFPOTURpGovP9EFIrTNEzozV",
+        "temperature": 0.5,
+        "max_tokens": 60000,
+        "timeout": 300,
+        "reasoning_effort": "medium"
+    },
+    "prompt": {
+        "system_message": "You are optimizing the iron 2601 price time-series forecasting pipeline (TimeMixer baseline) on iron futures daily data. Objective: minimize test_mse/test_mae/test_mape and maximize test_da returned by train_predict_evaluate() (evaluator combines them).\\n\\nHard constraints:\\n  - Only modify code inside the EVOLVE-BLOCK; do not touch paths, helper functions, or signatures outside the block.\\n  - Keep the script runnable standalone in its folder: load merged_data.csv via existing config/path logic; keep I/O and train_predict_evaluate() interface (returns test_mse, test_mae, test_mape, test_da).\\n  - Preserve required data processing/feature steps unless you improve them inside the block; do not break dataset splits or output shapes.\\n  - You must keep pred_len=12 for all models.\\n  - You must use the existing data (train_raw.csv, val_raw.csv, test_raw.csv).\\n  - You can not modify random seed\\n\\nFreedom:\\n  - Inside EVOLVE-BLOCK you may change model architecture (TimeMixer tweaks, other DL/ML models), hyperparameters, optimization schedule, augmentation, calibration.\\n\\nOutput format:\\n  - Respond ONLY with valid SEARCH/REPLACE diffs for the EVOLVE-BLOCK. If no valid diff, return an empty diff."
+    },
+    "database": {
+        "population_size": 16,
+        "archive_size": 8,
+        "num_islands": 3,
+        "elite_selection_ratio": 0.25,
+        "exploitation_ratio": 0.6
+    },
+    "evaluator": {
+        "timeout": 600,
+        "parallel_evaluations": 1,
+        "cascade_evaluation": false
+    },
+    "diff_based_evolution": true,
+    "max_code_length": 160000
+}

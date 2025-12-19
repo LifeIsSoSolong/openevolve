@@ -56,3 +56,6 @@ problems
 
 # for config with aipkey
 config_*.yaml
+
+# 
+test_results/

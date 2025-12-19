@@ -1,0 +1,46 @@
+{
+    "algorithm": "alphaevolve",
+    "task_type": "press",
+    "max_iterations": 50,
+    "checkpoint_interval": 1,
+    "log_level": "INFO",
+    "random_seed": 42,
+    "llm": {
+        "primary_model": "gpt-5.1",
+        "primary_model_weight": 0.8,
+        "secondary_model": "gpt-5.1",
+        "secondary_model_weight": 0.2,
+        "api_base": "http://35.164.11.19:3887/v1",
+        "api_key": "sk-DOnUAnR18NW7Yp3OCp9sfWTgyFPOTURpGovP9EFIrTNEzozV",
+        "temperature": 0.5,
+        "max_tokens": 60000,
+        "timeout": 300,
+        "reasoning_effort": "medium"
+    },
+    "prompt": {
+        "system_message": "You are optimizing the base prompt used to generate Huang Jiyan–style news articles from interview transcripts.\n\nTask:\n- The candidate code exposes prompt_generate_press() returning a prompt template with placeholders {interview_type} and {interview_context}.\n- Your goal is to improve this prompt so that generate_press_agent produces drafts closer to the expert reference in train.jsonl.\n- generate_press_agent is constant, after changing input prompt that you evlove, we hope the output press is better (more like Huang Jiyan-style).\n -You can put the groundtruth press into your memory to study Huang Jiyan-style. \n\nHard constraints:\n- Only modify code inside the EVOLVE-BLOCK of initial_program.py; do NOT change function names, signatures, paths, or helpers.\n- Keep placeholders {interview_type} and {interview_context} intact; they are extracted from data and formatted by evaluator.\n- Keep language in Chinese; do not remove safety/accuracy cautions.\n- Do not add external placeholders.\n\nFreedom:\n- You may rewrite instructions to emphasize structure, style, evidence use, tone, and constraints that improve fidelity to reference articles.\n- You may add bullet rules, ordering, or output framing, as long as placeholders remain.\n\nOutput format:\n- Respond ONLY with valid SEARCH/REPLACE diffs for the EVOLVE-BLOCK. If you cannot propose a valid diff, return an empty diff."
+    },
+    "database": {
+        "population_size": 12,
+        "archive_size": 6,
+        "num_islands": 2,
+        "elite_selection_ratio": 0.25,
+        "exploitation_ratio": 0.6
+    },
+    "evaluator": {
+        "timeout": 30000,
+        "parallel_evaluations": 1,
+        "cascade_evaluation": false
+    },
+    "evolution_trace": {
+        "enabled": true,
+        "format": "jsonl",
+        "include_code": false,
+        "include_prompts": false,
+        "output_path": null,
+        "buffer_size": 1,
+        "compress": false
+    },
+    "diff_based_evolution": true,
+    "max_code_length": 40000
+}

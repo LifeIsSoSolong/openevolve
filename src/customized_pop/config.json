@@ -1,0 +1,18 @@
+{
+    "environments": {
+        "OPENAI_API_KEY": "sk-5d2ZcXHg0SSTEB8V6005Dd8f74E14f1e95Ae3c0e205b3f2a",
+        "OPENAI_API_BASE": "https://api3.apifans.com/v1"
+    },
+    "algorithm": "prompt_learning",
+    "agent": {
+        "initial_template": "You are a competition math solver.\nTask: {task}\nInstructions:\n- If fractional, use simplified form like a/b.\n- Do not include steps, units, or extra text.\n- Put the final answer in LaTeX \\boxed{} format.\n",
+        "agent_model": "gpt-4o-mini",
+        "optimizer_model": "gpt-4o"
+    },
+    "training": {
+        "train_size": 8,
+        "test_size": 8,
+        "loops": 3,
+        "max_workers": 8
+    }
+}

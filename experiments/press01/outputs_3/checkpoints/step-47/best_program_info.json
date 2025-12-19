@@ -1,0 +1,25 @@
+{
+  "id": "c0d7598c-ce16-44e0-a2e9-bec96fa9bf6f",
+  "generation": 2,
+  "iteration": 10,
+  "current_iteration": 47,
+  "metrics": {
+    "combined_score": 0.78,
+    "overall": 7.8,
+    "style": 7.6,
+    "structure": 7.6,
+    "content": 9.0,
+    "evidence": 8.2,
+    "facts_format": 8.2,
+    "test_combined_score": 0.7428571428571429,
+    "test_overall": 7.428571428571429,
+    "test_style": 7.428571428571429,
+    "test_structure": 6.571428571428571,
+    "test_content": 8.714285714285714,
+    "test_evidence": 7.857142857142857,
+    "test_facts_format": 8.857142857142858
+  },
+  "language": "python",
+  "timestamp": 1765464882.723639,
+  "saved_at": 1765473392.1635149
+}

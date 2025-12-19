@@ -1,0 +1,13 @@
+{
+    "environments": {
+        "OPENAI_API_KEY": "sk-5d2ZcXHg0SSTEB8V6005Dd8f74E14f1e95Ae3c0e205b3f2a",
+        "OPENAI_API_BASE": "https://api3.apifans.com/v1"
+    },
+    "algorithm": "dspy.COPRO",
+    "training": {
+        "breadth": 4,
+        "depth": 4,
+        "init_temperature": 1.0,
+        "num_threads": 8
+    }
+}
