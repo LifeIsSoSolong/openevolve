@@ -1,7 +1,7 @@
 {
     "algorithm": "alpha_evolve",
     "task_type": "mle",
-    "max_iterations": 30,
+    "max_iterations": 5,
     "checkpoint_interval": 1,
     "log_level": "INFO",
     "random_seed": 42,

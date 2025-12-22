@@ -45,28 +45,17 @@ BASE_CONFIG = {
         "primary_model_weight": 0.8,
         "secondary_model": "gpt-5.2",
         "secondary_model_weight": 0.2,
-        # "api_base": "https://newapi.frontis.top/v1",
-        # "api_key": "sk-JegueK6Qy16ZJ6zjxfoKBMwQ32kt56LRZgyTPlapD7cGw0QN",
-        "api_base": "http://35.164.11.19:3887/v1",
-        "api_key": "sk-DOnUAnR18NW7Yp3OCp9sfWTgyFPOTURpGovP9EFIrTNEzozV",
+        "api_base": "https://newapi.frontis.top/v1",
+        "api_key": "sk-JegueK6Qy16ZJ6zjxfoKBMwQ32kt56LRZgyTPlapD7cGw0QN",
+        # "api_base": "http://35.164.11.19:3887/v1",
+        # "api_key": "sk-DOnUAnR18NW7Yp3OCp9sfWTgyFPOTURpGovP9EFIrTNEzozV",
         "temperature": 0.5,
         "max_tokens": 60000,
         "timeout": 300,
         "reasoning_effort": "medium",
     },
     "prompt": {
-        "system_message": (
-            "You are optimizing machine learning code for predicting Brazilian soybean yield. Goal: minimize MAPE/RMSE on the held-out test set.\n\n"
-            "Hard constraints:\n"
-            "- Only modify code inside the EVOLVE-BLOCK;\n"
-            "- Keep the script runnable standalone: read train and test data, train model using train.csv and then validation using test.csv (with target label).\n"
-            " do not drop all features, you can combine them to generate new features for better performance.\n"
-            "- You can use any other standard Python libraries for better model.\n\n"
-            "Freedom:\n"
-            "- Inside EVOLVE-BLOCK you may change model type (LightGBM/CatBoost/XGBoost/linear/NN/heuristics/FFN), features, and hyperparameters to improve accuracy.\n\n"
-            "Output format:\n"
-            "- Respond ONLY with valid SEARCH/REPLACE diffs for the EVOLVE-BLOCK. If you cannot propose a valid diff, return an empty diff.\n"
-        )
+        "system_message": (" ")
     },
     "database": {
         "population_size": 16,
@@ -124,7 +113,7 @@ def load_config_sources(input_dir: Path, json_path: Path) -> Tuple[Dict[str, Any
             if goal_text:
                 base_cfg.setdefault("prompt", {})["system_message"] = goal_text
                 preview = (goal_text[:200] + "...") if len(goal_text) > 200 else goal_text
-                print(f"[main_bean] Loaded system_message from task.goal: {preview}")
+                print(f"[main] Loaded system_message from task.goal: {preview}")
         except Exception as exc:
             print(f"Warning: failed to read task.goal: {exc}")
 
@@ -189,6 +178,8 @@ async def run_openevolve(config_dict: Dict[str, Any], input_dir: Path, output_di
         config=config_obj,
         output_dir=str(output_dir),
     )
+    # 让 evaluator 可感知输出目录，便于写 submission_* 文件
+    os.environ["OPENEVOLVE_OUTPUT_DIR"] = str(output_dir)
 
     # Monkey-patch database.add to append events.jsonl and update status.json
     orig_add = openevolve.database.add
@@ -287,6 +278,14 @@ async def run_openevolve(config_dict: Dict[str, Any], input_dir: Path, output_di
                 if current:
                     cur_path = dst / f"current_program{self.file_extension}"
                     cur_path.write_text(current.code, encoding="utf-8")
+                # 将 submission_* 挪到对应 step 目录，便于按轮查看
+                for name in ("submission_train.jsonl", "submission_test.jsonl"):
+                    src_sub = Path(self.output_dir) / name
+                    if src_sub.exists():
+                        try:
+                            shutil.move(str(src_sub), str(dst / name))
+                        except Exception as move_sub_exc:
+                            print(f"Warning: failed to move {name} -> {dst}: {move_sub_exc}")
             except Exception as move_exc:
                 print(f"Warning: failed to rename {src} -> {dst}: {move_exc}")
 
