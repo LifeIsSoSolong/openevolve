@@ -16,13 +16,10 @@ import json
 import logging
 import sys
 import os
-import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from statistics import mean
 from typing import Any, Dict, List, Tuple
-
-from openevolve.evaluation_result import EvaluationResult
 
 
 ROOT = Path(__file__).resolve().parent
@@ -53,7 +50,6 @@ MODEL_NAME_EVALUATE_PRESS = "gpt-5.2"
 TEMPERATURE_EVALUATE_PRESS = 0.0
 # 并发度（每轮内部同时处理的样本并发数量）
 SAMPLE_CONCURRENCY = 10
-ARTIFACT_SAMPLE_COUNT = 1
 
 
 def _load_module(program_path: str):
@@ -84,8 +80,7 @@ def _evaluate_split(
     user_prompt_template: str,
     split_name: str,
     output_dir: Path | None = None,
-    artifact_index: int | None = None,
-) -> Tuple[Dict[str, float], Dict[str, Any] | None]:
+) -> Dict[str, float]:
     from generate_press_agent import generate_press_agent
     from evaluate_press_agent import evaluate_press_agent
 
@@ -116,7 +111,7 @@ def _evaluate_split(
             return {"combined_score": 0.0, "error": f"generate_press_failed: {exc}"}
 
         try:
-            eval_result = evaluate_press_agent(
+            metrics = evaluate_press_agent(
                 model_name=MODEL_NAME_EVALUATE_PRESS,
                 generated_press=generated_press,
                 reference_press=groundtruth,
@@ -124,15 +119,8 @@ def _evaluate_split(
                 api_key=API_KEY_EVALUATE_PRESS,
                 temperature=TEMPERATURE_EVALUATE_PRESS,
             )
-            if isinstance(eval_result, dict):
-                judge_output = eval_result.pop("judge_output", "")
-                metrics = eval_result
-            else:
-                judge_output = ""
-                metrics = {"combined_score": 0.0}
         except Exception as exc:
             log.error("Sample %s: evaluate_press failed: %s", idx, exc)
-            judge_output = ""
             metrics = {"combined_score": 0.0, "error": str(exc)}
 
         log.info("Sample %s metrics: %s", idx, metrics)
@@ -151,30 +139,15 @@ def _evaluate_split(
             sub_path.parent.mkdir(parents=True, exist_ok=True)
             with open(sub_path, "a", encoding="utf-8") as wf:
                 wf.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        artifact_item = None
-        if artifact_index is not None and idx == artifact_index:
-            artifact_item = {
-                "index": idx,
-                "interview_type": interview_type,
-                "interview_context": interview_context,
-                "generated_press": generated_press,
-                "ground_truth": groundtruth,
-                "judge_output": judge_output,
-                "metrics": metrics,
-            }
-        return {"metrics": metrics, "artifact": artifact_item}
+        return metrics
 
     # 动态收集所有数值型指标做均值，其余跳过
     numeric_acc: Dict[str, List[float]] = {}
-    artifact: Dict[str, Any] | None = None
 
     with ThreadPoolExecutor(max_workers=SAMPLE_CONCURRENCY) as executor:
         future_to_idx = {executor.submit(_process_one, idx, sample): idx for idx, sample in enumerate(dataset)}
         for future in as_completed(future_to_idx):
-            result = future.result()
-            metrics = result.get("metrics", {}) if isinstance(result, dict) else {}
-            if artifact is None and isinstance(result, dict):
-                artifact = result.get("artifact")
+            metrics = future.result()
             # 确保 combined_score 存在
             if "combined_score" not in metrics:
                 metrics["combined_score"] = 0.0
@@ -188,10 +161,10 @@ def _evaluate_split(
     aggregated = {k: avg(vs) for k, vs in numeric_acc.items()}
     if "combined_score" not in aggregated:
         aggregated["combined_score"] = 0.0
-    return aggregated, artifact
+    return aggregated
 
 
-def evaluate(program_path: str) -> Any:
+def evaluate(program_path: str) -> Dict[str, Any]:
     """
     Entry point for OpenEvolve.
     Returns train metrics (with combined_score) for evolution guidance.
@@ -218,42 +191,15 @@ def evaluate(program_path: str) -> Any:
         output_dir_env = os.getenv("OPENEVOLVE_OUTPUT_DIR")
         out_dir = Path(output_dir_env) if output_dir_env else None
 
-        artifact_index = None
-        if train_data and ARTIFACT_SAMPLE_COUNT > 0:
-            artifact_index = random.randrange(len(train_data))
-
-        train_metrics, train_artifact = _evaluate_split(
-            train_data,
-            system_prompt,
-            user_prompt_template,
-            "train",
-            out_dir,
-            artifact_index=artifact_index,
-        )
-        if test_data:
-            test_metrics, _ = _evaluate_split(
-                test_data,
-                system_prompt,
-                user_prompt_template,
-                "test",
-                out_dir,
-                artifact_index=None,
-            )
-        else:
-            test_metrics = {}
+        train_metrics = _evaluate_split(train_data, system_prompt, user_prompt_template, "train", out_dir)
+        test_metrics = _evaluate_split(test_data, system_prompt, user_prompt_template, "test", out_dir) if test_data else {}
 
         if test_metrics:
             print(f"Test metrics (display only): {test_metrics}")
             # 将测试集指标写回返回结果，便于上层记录
             train_metrics.update({f"test_{k}": v for k, v in test_metrics.items()})
 
-        artifacts = {}
-        if train_artifact:
-            artifacts["train_random_sample"] = json.dumps(
-                train_artifact, ensure_ascii=False, indent=2
-            )
-
-        return EvaluationResult(metrics=train_metrics, artifacts=artifacts)
+        return train_metrics
     except Exception as exc:
         return {"combined_score": 0.0, "error": str(exc)}
 

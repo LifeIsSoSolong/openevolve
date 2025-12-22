@@ -26,7 +26,7 @@ def evaluate_press_agent(
     max_tokens: int = 5120,
     temperature: float = 0.0,
     **_: Any,
-) -> Dict[str, Any]:
+) -> Dict[str, float]:
     """
     Judge generated_press vs reference_press using OpenAI.
 
@@ -57,16 +57,11 @@ def evaluate_press_agent(
     # 新打分格式：只关心最后一行 “最终得分: X/10”
     score_match = re.search(r"最终得分\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)\s*/\s*10", content)
     if not score_match:
-        return {
-            "combined_score": 0.0,
-            "error": "final score not found",
-            "judge_output": content,
-        }
+        return {"combined_score": 0.0, "error": "final score not found"}
 
     raw_score = float(score_match.group(1))
     combined = max(0.0, min(10.0, raw_score)) / 10.0
 
     return {
         "combined_score": combined,
-        "judge_output": content,
-    }
+        }

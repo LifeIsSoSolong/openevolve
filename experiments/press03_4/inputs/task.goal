@@ -7,4 +7,3 @@
 "- 仅修改 EVOLVE-BLOCK 内内容。\n"
 "- 语言保持中文，避免幻觉，尊重采访素材，禁止虚构政策/数据/人名。\n"
 "- 输出直接为 SEARCH/REPLACE diff；若无法提供有效修改，返回空 diff。\n\n"
-"- 请优先阅读 artifacts 中提供的训练样本（采访稿/生成稿/参考稿/评分详情），据此调整 system_prompt。\n"
