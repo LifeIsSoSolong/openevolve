@@ -26,12 +26,12 @@ def evaluate_press_agent(
     max_tokens: int = 5120,
     temperature: float = 0.0,
     **_: Any,
-) -> Dict[str, Any]:
+) -> Dict[str, float]:
     """
     Judge generated_press vs reference_press using OpenAI.
 
     Returns:
-        dict with numeric metrics and judge outputs for downstream artifacts.
+        dict with per-dimension scores and combined_score (overall/10).
     """
     client = OpenAI(
         base_url=api_base or os.getenv("OPENAI_API_BASE"),
@@ -57,92 +57,11 @@ def evaluate_press_agent(
     # 新打分格式：只关心最后一行 “最终得分: X/10”
     score_match = re.search(r"最终得分\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)\s*/\s*10", content)
     if not score_match:
-        return {
-            "metrics": {"combined_score": 0.0, "error": "final score not found"},
-            "judge_output": content,
-            "judge_summary": _summarize_low_reason(content, {}, 0.0),
-            "dimension_scores": {},
-        }
+        return {"combined_score": 0.0, "error": "final score not found"}
 
     raw_score = float(score_match.group(1))
     combined = max(0.0, min(10.0, raw_score)) / 10.0
 
-    scores = _extract_dimension_scores(content)
     return {
-        "metrics": {"combined_score": combined},
-        "judge_output": content,
-        "judge_summary": _summarize_low_reason(content, scores, combined),
-        "dimension_scores": scores,
-    }
-
-
-_DIMENSION_PATTERNS = {
-    "structure": [r"结构与叙事逻辑", r"结构与叙事"],
-    "style": [r"文风与写作特点", r"文风与写作", r"文风"],
-    "data_policy": [r"数据与政策使用", r"数据与政策"],
-    "overall_similarity": [r"整体相似度与可读性", r"整体相似度", r"可读性"],
-}
-
-
-def _extract_dimension_scores(content: str) -> Dict[str, float]:
-    scores: Dict[str, float] = {}
-    lines = [line.strip() for line in content.splitlines() if line.strip()]
-    for key, patterns in _DIMENSION_PATTERNS.items():
-        found = None
-        for line in lines:
-            for label in patterns:
-                if label in line:
-                    match = re.search(
-                        label + r"[^0-9]{0,10}([0-9]+(?:\.[0-9]+)?)", line
-                    )
-                    if match:
-                        found = float(match.group(1))
-                        break
-            if found is not None:
-                break
-        if found is not None:
-            scores[key] = found
-    return scores
-
-
-def _summarize_low_reason(
-    content: str,
-    dimension_scores: Dict[str, float],
-    combined_score: float,
-    max_chars: int = 400,
-) -> str:
-    parts = []
-    if dimension_scores:
-        low_dims = sorted(dimension_scores.items(), key=lambda item: item[1])
-        low_dims = low_dims[:2]
-        dims_str = ", ".join(f"{name}={score:g}" for name, score in low_dims)
-        parts.append(f"lowest_dimensions: {dims_str}")
-    parts.append(f"final_score_10pt: {combined_score * 10:.1f}")
-    excerpt = _extract_analysis_excerpt(content, max_chars=max_chars)
-    if excerpt:
-        parts.append(f"judge_excerpt: {excerpt}")
-    return " | ".join(parts)
-
-
-def _extract_analysis_excerpt(content: str, max_chars: int) -> str:
-    lines = []
-    for line in content.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        if "最终得分" in line:
-            continue
-        if re.search(r"/\s*10", line) and len(line) <= 40:
-            continue
-        lines.append(line)
-        if len(" ".join(lines)) >= max_chars or len(lines) >= 3:
-            break
-    return _truncate_text(" ".join(lines), max_chars)
-
-
-def _truncate_text(text: str, max_chars: int) -> str:
-    if not text or max_chars <= 0:
-        return ""
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars] + " ...[truncated]"
+        "combined_score": combined,
+        }

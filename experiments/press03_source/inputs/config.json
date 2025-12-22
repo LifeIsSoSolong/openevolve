@@ -1,7 +1,7 @@
 {
     "algorithm": "alpha_evolve",
     "task_type": "press",
-    "max_iterations": 3,
+    "max_iterations": 5,
     "checkpoint_interval": 1,
     "log_level": "INFO",
     "random_seed": 42,
@@ -14,11 +14,6 @@
         "max_tokens": 60000,
         "timeout": 300
     },
-    "prompt": {
-        "include_artifacts": true,
-        "max_artifact_bytes": 20480,
-        "artifact_security_filter": true
-    },
     "database": {
         "population_size": 12,
         "archive_size": 6,
@@ -28,8 +23,7 @@
     },
     "evaluator": {
         "timeout": 30000,
-        "parallel_evaluations": 1,
-        "enable_artifacts": true
+        "parallel_evaluations": 1
     },
     "evolution_trace": {
         "enabled": true,
@@ -39,11 +33,5 @@
         "output_path": null,
         "buffer_size": 1,
         "compress": false
-    },
-    "environments": {
-        "ENABLE_ARTIFACTS": "true",
-        "PRESS03_LOW_SCORE_TOPK": "5",
-        "PRESS03_JUDGE_OUTPUT_MAX_CHARS": "1200",
-        "PRESS03_JUDGE_SUMMARY_MAX_CHARS": "400"
     }
 }

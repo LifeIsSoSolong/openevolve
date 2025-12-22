@@ -21,8 +21,6 @@ from pathlib import Path
 from statistics import mean
 from typing import Any, Dict, List, Tuple
 
-from openevolve.evaluation_result import EvaluationResult
-
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT
@@ -53,37 +51,6 @@ TEMPERATURE_EVALUATE_PRESS = 0.0
 # 并发度（每轮内部同时处理的样本并发数量）
 SAMPLE_CONCURRENCY = 10
 
-LOW_SCORE_TOPK = int(os.getenv("PRESS03_LOW_SCORE_TOPK", "5"))
-JUDGE_OUTPUT_MAX_CHARS = int(os.getenv("PRESS03_JUDGE_OUTPUT_MAX_CHARS", "1200"))
-JUDGE_SUMMARY_MAX_CHARS = int(os.getenv("PRESS03_JUDGE_SUMMARY_MAX_CHARS", "400"))
-
-
-def _truncate_text(text: str, max_chars: int) -> str:
-    if not text or max_chars <= 0:
-        return ""
-    if len(text) <= max_chars:
-        return text
-    return text[:max_chars] + " ...[truncated]"
-
-
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _build_low_score_summary(records: List[Dict[str, Any]]) -> str:
-    if not records:
-        return ""
-    lines = []
-    for rec in records:
-        idx = rec.get("index")
-        score = _safe_float(rec.get("combined_score", 0.0))
-        summary = rec.get("judge_summary", "")
-        lines.append(f"idx={idx}, score={score:.3f}: {summary}")
-    return "\n".join(lines)
-
 
 def _load_module(program_path: str):
     module_name = f"candidate_module_{Path(program_path).stem}"
@@ -113,8 +80,7 @@ def _evaluate_split(
     user_prompt_template: str,
     split_name: str,
     output_dir: Path | None = None,
-    collect_details: bool = False,
-) -> Tuple[Dict[str, float], List[Dict[str, Any]]]:
+) -> Dict[str, float]:
     from generate_press_agent import generate_press_agent
     from evaluate_press_agent import evaluate_press_agent
 
@@ -142,27 +108,10 @@ def _evaluate_split(
             log.info("Sample %s: generated_press_len=%s", idx, len(generated_press))
         except Exception as exc:
             log.error("Sample %s: generate_press failed: %s", idx, exc)
-            metrics = {"combined_score": 0.0, "error": f"generate_press_failed: {exc}"}
-            detail = None
-            if collect_details:
-                detail = {
-                    "index": idx,
-                    "split": split_name,
-                    "combined_score": _safe_float(metrics.get("combined_score", 0.0)),
-                    "interview_type": interview_type,
-                    "interview_len": len(interview_context),
-                    "generated_len": len(generated_press),
-                    "judge_output": "",
-                    "judge_summary": _truncate_text(
-                        f"generate_press_failed: {exc}", JUDGE_SUMMARY_MAX_CHARS
-                    ),
-                    "dimension_scores": {},
-                    "error": metrics.get("error"),
-                }
-            return {"metrics": metrics, "detail": detail}
+            return {"combined_score": 0.0, "error": f"generate_press_failed: {exc}"}
 
         try:
-            eval_payload = evaluate_press_agent(
+            metrics = evaluate_press_agent(
                 model_name=MODEL_NAME_EVALUATE_PRESS,
                 generated_press=generated_press,
                 reference_press=groundtruth,
@@ -170,22 +119,9 @@ def _evaluate_split(
                 api_key=API_KEY_EVALUATE_PRESS,
                 temperature=TEMPERATURE_EVALUATE_PRESS,
             )
-            if isinstance(eval_payload, dict) and "metrics" in eval_payload:
-                metrics = eval_payload.get("metrics", {})
-                judge_output = eval_payload.get("judge_output", "")
-                judge_summary = eval_payload.get("judge_summary", "")
-                dimension_scores = eval_payload.get("dimension_scores", {})
-            else:
-                metrics = eval_payload if isinstance(eval_payload, dict) else {"combined_score": 0.0}
-                judge_output = ""
-                judge_summary = ""
-                dimension_scores = {}
         except Exception as exc:
             log.error("Sample %s: evaluate_press failed: %s", idx, exc)
             metrics = {"combined_score": 0.0, "error": str(exc)}
-            judge_output = ""
-            judge_summary = f"evaluate_press_failed: {exc}"
-            dimension_scores = {}
 
         log.info("Sample %s metrics: %s", idx, metrics)
         # 追加 submission_{split}.jsonl
@@ -203,34 +139,15 @@ def _evaluate_split(
             sub_path.parent.mkdir(parents=True, exist_ok=True)
             with open(sub_path, "a", encoding="utf-8") as wf:
                 wf.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        detail = None
-        if collect_details:
-            detail = {
-                "index": idx,
-                "split": split_name,
-                "combined_score": _safe_float(metrics.get("combined_score", 0.0)),
-                "interview_type": interview_type,
-                "interview_len": len(interview_context),
-                "generated_len": len(generated_press),
-                "judge_output": _truncate_text(judge_output, JUDGE_OUTPUT_MAX_CHARS),
-                "judge_summary": _truncate_text(judge_summary, JUDGE_SUMMARY_MAX_CHARS),
-                "dimension_scores": dimension_scores,
-                "error": metrics.get("error"),
-            }
-        return {"metrics": metrics, "detail": detail}
+        return metrics
 
     # 动态收集所有数值型指标做均值，其余跳过
     numeric_acc: Dict[str, List[float]] = {}
-    details: List[Dict[str, Any]] = []
 
     with ThreadPoolExecutor(max_workers=SAMPLE_CONCURRENCY) as executor:
         future_to_idx = {executor.submit(_process_one, idx, sample): idx for idx, sample in enumerate(dataset)}
         for future in as_completed(future_to_idx):
-            result = future.result()
-            metrics = result.get("metrics", {}) if isinstance(result, dict) else {}
-            detail = result.get("detail") if isinstance(result, dict) else None
-            if collect_details and detail:
-                details.append(detail)
+            metrics = future.result()
             # 确保 combined_score 存在
             if "combined_score" not in metrics:
                 metrics["combined_score"] = 0.0
@@ -244,10 +161,10 @@ def _evaluate_split(
     aggregated = {k: avg(vs) for k, vs in numeric_acc.items()}
     if "combined_score" not in aggregated:
         aggregated["combined_score"] = 0.0
-    return aggregated, details
+    return aggregated
 
 
-def evaluate(program_path: str) -> Any:
+def evaluate(program_path: str) -> Dict[str, Any]:
     """
     Entry point for OpenEvolve.
     Returns train metrics (with combined_score) for evolution guidance.
@@ -274,43 +191,15 @@ def evaluate(program_path: str) -> Any:
         output_dir_env = os.getenv("OPENEVOLVE_OUTPUT_DIR")
         out_dir = Path(output_dir_env) if output_dir_env else None
 
-        train_metrics, train_details = _evaluate_split(
-            train_data,
-            system_prompt,
-            user_prompt_template,
-            "train",
-            out_dir,
-            collect_details=LOW_SCORE_TOPK > 0,
-        )
-        if test_data:
-            test_metrics, _ = _evaluate_split(
-                test_data,
-                system_prompt,
-                user_prompt_template,
-                "test",
-                out_dir,
-                collect_details=False,
-            )
-        else:
-            test_metrics = {}
+        train_metrics = _evaluate_split(train_data, system_prompt, user_prompt_template, "train", out_dir)
+        test_metrics = _evaluate_split(test_data, system_prompt, user_prompt_template, "test", out_dir) if test_data else {}
 
         if test_metrics:
             print(f"Test metrics (display only): {test_metrics}")
             # 将测试集指标写回返回结果，便于上层记录
             train_metrics.update({f"test_{k}": v for k, v in test_metrics.items()})
 
-        artifacts: Dict[str, Any] = {}
-        if LOW_SCORE_TOPK > 0 and train_details:
-            sorted_details = sorted(
-                train_details, key=lambda item: _safe_float(item.get("combined_score", 0.0))
-            )
-            topk = sorted_details[:LOW_SCORE_TOPK]
-            artifacts["train_low_score_topk"] = json.dumps(
-                topk, ensure_ascii=False, indent=2
-            )
-            artifacts["train_low_score_summary"] = _build_low_score_summary(topk)
-
-        return EvaluationResult(metrics=train_metrics, artifacts=artifacts)
+        return train_metrics
     except Exception as exc:
         return {"combined_score": 0.0, "error": str(exc)}
 
