@@ -1,0 +1,20 @@
+优化铁矿石期货价格预测模型，预测未来8周的周收盘价。
+
+主要目标：
+- 最大化 MDA (Mean Directional Accuracy) - 预测方向准确率
+
+次要目标：
+- 降低 RMSE (Root Mean Squared Error) - 预测误差
+- 降低 MAPE (Mean Absolute Percentage Error) - 百分比误差
+
+优化方向：
+1. 调整滑动窗口大小（历史数据周数 M）
+2. 改进时间特征工程（年月季度、周期性编码、滞后特征、移动平均等）
+3. 优化缺失值处理策略（中位数填充、前向填充、插值等）
+4. 尝试不同的模型架构（GradientBoosting, XGBoost, LightGBM, RandomForest等）
+5. 调整模型超参数（n_estimators, learning_rate, max_depth等）
+
+约束条件：
+- 必须使用单个多输出模型预测8周数据
+- 不能使用测试集信息训练（避免数据泄露）
+- 预测窗口固定为8周

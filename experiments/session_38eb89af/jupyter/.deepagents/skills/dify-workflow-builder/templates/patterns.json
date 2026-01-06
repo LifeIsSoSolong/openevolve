@@ -1,0 +1,1103 @@
+{
+  "patterns": {
+    "simple_qa": {
+      "name": "简单问答",
+      "description": "用户输入问题，LLM直接回答",
+      "type": "workflow",
+      "nodes": [
+        "start",
+        "llm",
+        "end"
+      ],
+      "template": {
+        "version": "0.5.0",
+        "kind": "app",
+        "dependencies": [],
+        "app": {
+          "mode": "workflow",
+          "name": "简单问答",
+          "icon": "🤖",
+          "icon_background": "#FFEAD5"
+        },
+        "workflow": {
+          "graph": {
+            "nodes": [
+              {
+                "id": "start_1",
+                "type": "custom",
+                "position": {
+                  "x": 80,
+                  "y": 282
+                },
+                "data": {
+                  "type": "start",
+                  "title": "开始",
+                  "variables": [
+                    {
+                      "label": "问题",
+                      "variable": "query",
+                      "type": "paragraph",
+                      "required": true
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "llm_1",
+                "type": "custom",
+                "position": {
+                  "x": 380,
+                  "y": 282
+                },
+                "data": {
+                  "type": "llm",
+                  "title": "AI回答",
+                  "model": {
+                    "provider": "langgenius/moonshot/moonshot",
+                    "name": "kimi-k2-turbo-preview",
+                    "mode": "chat",
+                    "completion_params": {
+                      "temperature": 0
+                    }
+                  },
+                  "prompt_template": [
+                    {
+                      "role": "system",
+                      "text": "你是一个有帮助的助手。",
+                      "id": "llm_1_system_0"
+                    },
+                    {
+                      "role": "user",
+                      "text": "{{#start_1.query#}}",
+                      "id": "llm_1_user_1"
+                    }
+                  ],
+                  "context": {
+                    "enabled": false,
+                    "variable_selector": []
+                  },
+                  "memory": {
+                    "enabled": false,
+                    "role_prefix": {
+                      "assistant": "",
+                      "user": ""
+                    },
+                    "window": {
+                      "enabled": false,
+                      "size": 10
+                    }
+                  },
+                  "vision": {
+                    "enabled": false,
+                    "configs": {
+                      "variable_selector": []
+                    }
+                  }
+                }
+              },
+              {
+                "id": "end_1",
+                "type": "custom",
+                "position": {
+                  "x": 680,
+                  "y": 282
+                },
+                "data": {
+                  "type": "end",
+                  "title": "结束",
+                  "outputs": [
+                    {
+                      "variable": "answer",
+                      "value_selector": [
+                        "llm_1",
+                        "text"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "edges": [
+              {
+                "id": "e1",
+                "source": "start_1",
+                "sourceHandle": "source",
+                "target": "llm_1",
+                "targetHandle": "target"
+              },
+              {
+                "id": "e2",
+                "source": "llm_1",
+                "sourceHandle": "source",
+                "target": "end_1",
+                "targetHandle": "target"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "rag_qa": {
+      "name": "RAG知识库问答",
+      "description": "检索知识库后生成回答",
+      "type": "workflow",
+      "nodes": [
+        "start",
+        "knowledge-retrieval",
+        "llm",
+        "end"
+      ],
+      "template": {
+        "version": "0.5.0",
+        "kind": "app",
+        "dependencies": [],
+        "app": {
+          "mode": "workflow",
+          "name": "知识库问答"
+        },
+        "workflow": {
+          "graph": {
+            "nodes": [
+              {
+                "id": "start_1",
+                "data": {
+                  "type": "start",
+                  "title": "开始",
+                  "variables": [
+                    {
+                      "label": "问题",
+                      "variable": "query",
+                      "type": "paragraph",
+                      "required": true
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "kr_1",
+                "data": {
+                  "type": "knowledge-retrieval",
+                  "title": "知识检索",
+                  "query_variable_selector": [
+                    "start_1",
+                    "query"
+                  ],
+                  "dataset_ids": [
+                    "__DATASET_ID__"
+                  ],
+                  "retrieval_mode": "multiple",
+                  "multiple_retrieval_config": {
+                    "top_k": 5,
+                    "score_threshold": 0.5
+                  }
+                }
+              },
+              {
+                "id": "llm_1",
+                "data": {
+                  "type": "llm",
+                  "title": "生成回答",
+                  "model": {
+                    "provider": "langgenius/moonshot/moonshot",
+                    "name": "kimi-k2-turbo-preview",
+                    "mode": "chat",
+                    "completion_params": {
+                      "temperature": 0
+                    }
+                  },
+                  "prompt_template": [
+                    {
+                      "role": "system",
+                      "text": "基于以下参考资料回答用户问题。如果资料中没有相关信息，请如实告知。\n\n参考资料：\n{{#kr_1.context#}}",
+                      "id": "llm_1_system_0"
+                    },
+                    {
+                      "role": "user",
+                      "text": "{{#start_1.query#}}",
+                      "id": "llm_1_user_1"
+                    }
+                  ],
+                  "context": {
+                    "enabled": true,
+                    "variable_selector": [
+                      "kr_1",
+                      "result"
+                    ]
+                  },
+                  "memory": {
+                    "enabled": false,
+                    "role_prefix": {
+                      "assistant": "",
+                      "user": ""
+                    },
+                    "window": {
+                      "enabled": false,
+                      "size": 10
+                    }
+                  },
+                  "vision": {
+                    "enabled": false,
+                    "configs": {
+                      "variable_selector": []
+                    }
+                  }
+                }
+              },
+              {
+                "id": "end_1",
+                "data": {
+                  "type": "end",
+                  "title": "结束",
+                  "outputs": [
+                    {
+                      "variable": "answer",
+                      "value_selector": [
+                        "llm_1",
+                        "text"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "edges": [
+              {
+                "source": "start_1",
+                "target": "kr_1"
+              },
+              {
+                "source": "kr_1",
+                "target": "llm_1"
+              },
+              {
+                "source": "llm_1",
+                "target": "end_1"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "intent_classification": {
+      "name": "意图分类处理",
+      "description": "根据用户意图分流到不同处理分支",
+      "type": "workflow",
+      "nodes": [
+        "start",
+        "question-classifier",
+        "llm*N",
+        "variable-aggregator",
+        "end"
+      ],
+      "template": {
+        "version": "0.5.0",
+        "kind": "app",
+        "dependencies": [],
+        "app": {
+          "mode": "workflow",
+          "name": "意图分类"
+        },
+        "workflow": {
+          "graph": {
+            "nodes": [
+              {
+                "id": "start_1",
+                "data": {
+                  "type": "start",
+                  "title": "开始",
+                  "variables": [
+                    {
+                      "label": "输入",
+                      "variable": "query",
+                      "type": "paragraph",
+                      "required": true
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "classifier_1",
+                "data": {
+                  "type": "question-classifier",
+                  "title": "意图分类",
+                  "query_variable_selector": [
+                    "start_1",
+                    "query"
+                  ],
+                  "model": {
+                    "provider": "langgenius/moonshot/moonshot",
+                    "name": "kimi-k2-turbo-preview",
+                    "mode": "chat",
+                    "completion_params": {
+                      "temperature": 0
+                    }
+                  },
+                  "classes": [
+                    {
+                      "id": "tech",
+                      "name": "技术问题",
+                      "description": "技术、编程相关"
+                    },
+                    {
+                      "id": "biz",
+                      "name": "业务问题",
+                      "description": "业务流程相关"
+                    },
+                    {
+                      "id": "other",
+                      "name": "其他",
+                      "description": "无法归类"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "llm_tech",
+                "position": {
+                  "x": 500,
+                  "y": 150
+                },
+                "data": {
+                  "type": "llm",
+                  "title": "技术专家",
+                  "model": {
+                    "provider": "langgenius/moonshot/moonshot",
+                    "name": "kimi-k2-turbo-preview",
+                    "mode": "chat",
+                    "completion_params": {
+                      "temperature": 0
+                    }
+                  },
+                  "prompt_template": [
+                    {
+                      "role": "system",
+                      "text": "你是技术专家，专门解答技术问题。",
+                      "id": "llm_tech_system_0"
+                    },
+                    {
+                      "role": "user",
+                      "text": "{{#start_1.query#}}",
+                      "id": "llm_tech_user_1"
+                    }
+                  ],
+                  "context": {
+                    "enabled": false,
+                    "variable_selector": []
+                  },
+                  "memory": {
+                    "enabled": false,
+                    "role_prefix": {
+                      "assistant": "",
+                      "user": ""
+                    },
+                    "window": {
+                      "enabled": false,
+                      "size": 10
+                    }
+                  },
+                  "vision": {
+                    "enabled": false,
+                    "configs": {
+                      "variable_selector": []
+                    }
+                  }
+                }
+              },
+              {
+                "id": "llm_biz",
+                "position": {
+                  "x": 500,
+                  "y": 300
+                },
+                "data": {
+                  "type": "llm",
+                  "title": "业务顾问",
+                  "model": {
+                    "provider": "langgenius/moonshot/moonshot",
+                    "name": "kimi-k2-turbo-preview",
+                    "mode": "chat",
+                    "completion_params": {
+                      "temperature": 0
+                    }
+                  },
+                  "prompt_template": [
+                    {
+                      "role": "system",
+                      "text": "你是业务顾问，专门解答业务问题。",
+                      "id": "llm_biz_system_0"
+                    },
+                    {
+                      "role": "user",
+                      "text": "{{#start_1.query#}}",
+                      "id": "llm_biz_user_1"
+                    }
+                  ],
+                  "context": {
+                    "enabled": false,
+                    "variable_selector": []
+                  },
+                  "memory": {
+                    "enabled": false,
+                    "role_prefix": {
+                      "assistant": "",
+                      "user": ""
+                    },
+                    "window": {
+                      "enabled": false,
+                      "size": 10
+                    }
+                  },
+                  "vision": {
+                    "enabled": false,
+                    "configs": {
+                      "variable_selector": []
+                    }
+                  }
+                }
+              },
+              {
+                "id": "llm_other",
+                "position": {
+                  "x": 500,
+                  "y": 450
+                },
+                "data": {
+                  "type": "llm",
+                  "title": "通用助手",
+                  "model": {
+                    "provider": "langgenius/moonshot/moonshot",
+                    "name": "kimi-k2-turbo-preview",
+                    "mode": "chat",
+                    "completion_params": {
+                      "temperature": 0
+                    }
+                  },
+                  "prompt_template": [
+                    {
+                      "role": "system",
+                      "text": "你是通用助手。",
+                      "id": "llm_other_system_0"
+                    },
+                    {
+                      "role": "user",
+                      "text": "{{#start_1.query#}}",
+                      "id": "llm_other_user_1"
+                    }
+                  ],
+                  "context": {
+                    "enabled": false,
+                    "variable_selector": []
+                  },
+                  "memory": {
+                    "enabled": false,
+                    "role_prefix": {
+                      "assistant": "",
+                      "user": ""
+                    },
+                    "window": {
+                      "enabled": false,
+                      "size": 10
+                    }
+                  },
+                  "vision": {
+                    "enabled": false,
+                    "configs": {
+                      "variable_selector": []
+                    }
+                  }
+                }
+              },
+              {
+                "id": "agg_1",
+                "position": {
+                  "x": 800,
+                  "y": 300
+                },
+                "data": {
+                  "type": "variable-aggregator",
+                  "title": "结果聚合",
+                  "variables": [
+                    [
+                      "llm_tech",
+                      "text"
+                    ],
+                    [
+                      "llm_biz",
+                      "text"
+                    ],
+                    [
+                      "llm_other",
+                      "text"
+                    ]
+                  ],
+                  "output_type": "string"
+                }
+              },
+              {
+                "id": "end_1",
+                "data": {
+                  "type": "end",
+                  "title": "结束",
+                  "outputs": [
+                    {
+                      "variable": "answer",
+                      "value_selector": [
+                        "agg_1",
+                        "output"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "edges": [
+              {
+                "source": "start_1",
+                "target": "classifier_1"
+              },
+              {
+                "source": "classifier_1",
+                "sourceHandle": "tech",
+                "target": "llm_tech"
+              },
+              {
+                "source": "classifier_1",
+                "sourceHandle": "biz",
+                "target": "llm_biz"
+              },
+              {
+                "source": "classifier_1",
+                "sourceHandle": "other",
+                "target": "llm_other"
+              },
+              {
+                "source": "llm_tech",
+                "target": "agg_1"
+              },
+              {
+                "source": "llm_biz",
+                "target": "agg_1"
+              },
+              {
+                "source": "llm_other",
+                "target": "agg_1"
+              },
+              {
+                "source": "agg_1",
+                "target": "end_1"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "conditional_branch": {
+      "name": "条件分支处理",
+      "description": "根据条件判断走不同分支",
+      "type": "workflow",
+      "nodes": [
+        "start",
+        "llm",
+        "if-else",
+        "llm*2",
+        "variable-aggregator",
+        "end"
+      ]
+    },
+    "batch_iteration": {
+      "name": "批量迭代处理",
+      "description": "对数组数据逐项处理",
+      "type": "workflow",
+      "nodes": [
+        "start",
+        "parameter-extractor",
+        "iteration",
+        "template",
+        "end"
+      ],
+      "template": {
+        "version": "0.5.0",
+        "kind": "app",
+        "dependencies": [],
+        "app": {
+          "mode": "workflow",
+          "name": "批量处理"
+        },
+        "workflow": {
+          "graph": {
+            "nodes": [
+              {
+                "id": "start_1",
+                "data": {
+                  "type": "start",
+                  "variables": [
+                    {
+                      "label": "待处理内容",
+                      "variable": "content",
+                      "type": "paragraph",
+                      "required": true
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "extractor_1",
+                "data": {
+                  "type": "parameter-extractor",
+                  "title": "提取列表",
+                  "query": [
+                    "start_1",
+                    "content"
+                  ],
+                  "model": {
+                    "provider": "langgenius/moonshot/moonshot",
+                    "name": "kimi-k2-turbo-preview",
+                    "mode": "chat",
+                    "completion_params": {
+                      "temperature": 0
+                    }
+                  },
+                  "parameters": [
+                    {
+                      "name": "items",
+                      "type": "array[string]",
+                      "description": "待处理的条目列表",
+                      "required": true
+                    }
+                  ],
+                  "instruction": "从输入中提取所有需要处理的条目"
+                }
+              },
+              {
+                "id": "iteration_1",
+                "data": {
+                  "type": "iteration",
+                  "title": "逐项处理",
+                  "iterator_selector": [
+                    "extractor_1",
+                    "items"
+                  ],
+                  "output_selector": [
+                    "iter_llm_1",
+                    "text"
+                  ],
+                  "is_parallel": true,
+                  "parallel_nums": 5,
+                  "error_handle_mode": "continue-on-error",
+                  "start_node_id": "iteration_1start",
+                  "flatten_output": true
+                }
+              },
+              {
+                "id": "iteration_1start",
+                "type": "custom-iteration-start",
+                "parentId": "iteration_1",
+                "data": {
+                  "type": "iteration-start",
+                  "title": "",
+                  "desc": "",
+                  "isInIteration": true
+                }
+              },
+              {
+                "id": "iter_llm_1",
+                "type": "custom",
+                "parentId": "iteration_1",
+                "data": {
+                  "type": "llm",
+                  "title": "逐项处理(Llm)",
+                  "desc": "",
+                  "isInIteration": true,
+                  "iteration_id": "iteration_1",
+                  "model": {
+                    "provider": "langgenius/moonshot/moonshot",
+                    "name": "kimi-k2-turbo-preview",
+                    "mode": "chat",
+                    "completion_params": {
+                      "temperature": 0
+                    }
+                  },
+                  "prompt_template": [
+                    {
+                      "role": "system",
+                      "text": "你是一个有帮助的助手。",
+                      "id": "iter_llm_1_system_0"
+                    },
+                    {
+                      "role": "user",
+                      "text": "{{#iteration_1.item#}}",
+                      "id": "iter_llm_1_user_1"
+                    }
+                  ],
+                  "context": {
+                    "enabled": false,
+                    "variable_selector": []
+                  },
+                  "memory": {
+                    "enabled": false,
+                    "window": {
+                      "enabled": false,
+                      "size": 10
+                    }
+                  },
+                  "vision": {
+                    "enabled": false,
+                    "configs": {
+                      "variable_selector": []
+                    }
+                  }
+                }
+              },
+              {
+                "id": "template_1",
+                "data": {
+                  "type": "template-transform",
+                  "title": "格式化输出",
+                  "template": "处理结果：\n{% for item in results %}\n- {{ item }}\n{% endfor %}",
+                  "variables": [
+                    {
+                      "variable": "results",
+                      "value_selector": [
+                        "iteration_1",
+                        "output"
+                      ],
+                      "value_type": "array[string]"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "end_1",
+                "data": {
+                  "type": "end",
+                  "outputs": [
+                    {
+                      "variable": "result",
+                      "value_selector": [
+                        "template_1",
+                        "output"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "edges": [
+              {
+                "source": "start_1",
+                "target": "extractor_1"
+              },
+              {
+                "source": "extractor_1",
+                "target": "iteration_1"
+              },
+              {
+                "source": "iteration_1start",
+                "target": "iter_llm_1"
+              },
+              {
+                "source": "iteration_1",
+                "target": "template_1"
+              },
+              {
+                "source": "template_1",
+                "target": "end_1"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "agent_with_tools": {
+      "name": "Agent智能体",
+      "description": "使用工具自主完成任务",
+      "type": "workflow",
+      "nodes": [
+        "start",
+        "agent",
+        "end"
+      ],
+      "template": {
+        "version": "0.5.0",
+        "kind": "app",
+        "dependencies": [],
+        "app": {
+          "mode": "workflow",
+          "name": "智能助手"
+        },
+        "workflow": {
+          "graph": {
+            "nodes": [
+              {
+                "id": "start_1",
+                "data": {
+                  "type": "start",
+                  "variables": [
+                    {
+                      "label": "任务",
+                      "variable": "task",
+                      "type": "paragraph",
+                      "required": true
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "agent_1",
+                "data": {
+                  "type": "agent",
+                  "title": "执行任务",
+                  "agent_strategy_name": "ReAct",
+                  "agent_parameters": {
+                    "model": {
+                      "type": "constant",
+                      "value": {
+                        "provider": "langgenius/moonshot/moonshot",
+                        "name": "kimi-k2-turbo-preview",
+                        "mode": "chat",
+                        "completion_params": {
+                          "temperature": 0
+                        }
+                      }
+                    },
+                    "tools": {
+                      "type": "constant",
+                      "value": []
+                    },
+                    "instruction": {
+                      "type": "constant",
+                      "value": "你是一个能干的助手，请完成用户交给你的任务。"
+                    },
+                    "query": {
+                      "type": "variable",
+                      "value": "{{#start_1.task#}}"
+                    },
+                    "max_iterations": {
+                      "type": "constant",
+                      "value": 10
+                    }
+                  }
+                }
+              },
+              {
+                "id": "end_1",
+                "data": {
+                  "type": "end",
+                  "outputs": [
+                    {
+                      "variable": "result",
+                      "value_selector": [
+                        "agent_1",
+                        "text"
+                      ]
+                    }
+                  ]
+                }
+              }
+            ],
+            "edges": [
+              {
+                "source": "start_1",
+                "target": "agent_1"
+              },
+              {
+                "source": "agent_1",
+                "target": "end_1"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "multi_step_generation": {
+      "name": "多步骤生成",
+      "description": "串联多个LLM依次处理",
+      "type": "workflow",
+      "nodes": [
+        "start",
+        "llm*N",
+        "end"
+      ]
+    },
+    "chatflow_with_memory": {
+      "name": "带记忆的对话",
+      "description": "Chatflow类型，支持多轮对话",
+      "type": "chat",
+      "nodes": [
+        "start",
+        "llm",
+        "answer"
+      ],
+      "template": {
+        "version": "0.5.0",
+        "kind": "app",
+        "dependencies": [],
+        "app": {
+          "mode": "chat",
+          "name": "智能对话"
+        },
+        "workflow": {
+          "graph": {
+            "nodes": [
+              {
+                "id": "start_1",
+                "data": {
+                  "type": "start",
+                  "variables": []
+                }
+              },
+              {
+                "id": "llm_1",
+                "data": {
+                  "type": "llm",
+                  "title": "对话",
+                  "model": {
+                    "provider": "langgenius/moonshot/moonshot",
+                    "name": "kimi-k2-turbo-preview",
+                    "mode": "chat",
+                    "completion_params": {
+                      "temperature": 0
+                    }
+                  },
+                  "prompt_template": [
+                    {
+                      "role": "system",
+                      "text": "你是一个友好的对话助手。",
+                      "id": "llm_1_system_0"
+                    },
+                    {
+                      "role": "user",
+                      "text": "{{#sys.query#}}",
+                      "id": "llm_1_user_1"
+                    }
+                  ],
+                  "memory": {
+                    "enabled": true,
+                    "window": {
+                      "enabled": true,
+                      "size": 20
+                    }
+                  },
+                  "context": {
+                    "enabled": false,
+                    "variable_selector": []
+                  },
+                  "vision": {
+                    "enabled": false,
+                    "configs": {
+                      "variable_selector": []
+                    }
+                  }
+                }
+              },
+              {
+                "id": "answer_1",
+                "data": {
+                  "type": "answer",
+                  "title": "回复",
+                  "answer": "{{#llm_1.text#}}"
+                }
+              }
+            ],
+            "edges": [
+              {
+                "source": "start_1",
+                "target": "llm_1"
+              },
+              {
+                "source": "llm_1",
+                "target": "answer_1"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "node_templates": {
+    "llm_basic": {
+      "type": "llm",
+      "title": "LLM",
+      "model": {
+        "provider": "langgenius/moonshot/moonshot",
+        "name": "kimi-k2-turbo-preview",
+        "mode": "chat",
+        "completion_params": {
+          "temperature": 0
+        }
+      },
+      "prompt_template": [
+        {
+          "role": "system",
+          "text": "__SYSTEM_PROMPT__",
+          "id": "LLM_system_0"
+        },
+        {
+          "role": "user",
+          "text": "__USER_INPUT__",
+          "id": "LLM_user_1"
+        }
+      ],
+      "context": {
+        "enabled": false
+      },
+      "memory": {
+        "enabled": false
+      },
+      "vision": {
+        "enabled": false,
+        "configs": {
+          "variable_selector": []
+        }
+      }
+    },
+    "llm_with_context": {
+      "type": "llm",
+      "title": "LLM",
+      "model": {
+        "provider": "langgenius/moonshot/moonshot",
+        "name": "kimi-k2-turbo-preview",
+        "mode": "chat",
+        "completion_params": {
+          "temperature": 0
+        }
+      },
+      "prompt_template": [
+        {
+          "role": "system",
+          "text": "基于以下参考资料回答问题：\n\n{{#__CONTEXT_VAR__#}}",
+          "id": "LLM_system_0"
+        },
+        {
+          "role": "user",
+          "text": "__USER_INPUT__",
+          "id": "LLM_user_1"
+        }
+      ],
+      "context": {
+        "enabled": true,
+        "variable_selector": [
+          "__CONTEXT_NODE__",
+          "result"
+        ]
+      },
+      "memory": {
+        "enabled": false,
+        "role_prefix": {
+          "assistant": "",
+          "user": ""
+        },
+        "window": {
+          "enabled": false,
+          "size": 10
+        }
+      },
+      "vision": {
+        "enabled": false,
+        "configs": {
+          "variable_selector": []
+        }
+      }
+    }
+  }
+}

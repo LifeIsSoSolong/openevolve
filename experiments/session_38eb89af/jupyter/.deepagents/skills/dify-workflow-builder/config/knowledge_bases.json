@@ -1,0 +1,68 @@
+{
+  "schema_version": "0.1",
+  "last_updated": "2025-12-27T08:05:10.406578Z",
+  "source": {
+    "type": "dify_api",
+    "url": "https://evo.frontis.top/api/v1/agents/datasets"
+  },
+  "knowledge_bases": [
+    {
+      "id": "51effbc6-85a8-48d9-803a-e68ba94d1bd2",
+      "name": "test-meta_agent",
+      "description": "useful for when you want to answer queries about the 26.txt",
+      "provider": "vendor",
+      "retrieval_model_dict": {
+        "search_method": "hybrid_search",
+        "reranking_enable": false,
+        "reranking_mode": "weighted_score",
+        "reranking_model": {
+          "reranking_provider_name": "",
+          "reranking_model_name": ""
+        },
+        "weights": {
+          "weight_type": "customized",
+          "keyword_setting": {
+            "keyword_weight": 0.3
+          },
+          "vector_setting": {
+            "vector_weight": 0.7,
+            "embedding_model_name": "text-embedding-v1",
+            "embedding_provider_name": "langgenius/tongyi/tongyi"
+          }
+        },
+        "top_k": 3,
+        "score_threshold_enabled": false,
+        "score_threshold": 0.0
+      },
+      "external_retrieval_model": {
+        "top_k": 3,
+        "score_threshold": 0.0,
+        "score_threshold_enabled": false
+      }
+    },
+    {
+      "id": "861096b3-1685-4940-a33e-bf27f0cae232",
+      "name": "新闻稿输出",
+      "description": "useful for when you want to answer queries about the outputs.csv",
+      "provider": "vendor",
+      "retrieval_model_dict": {
+        "search_method": "semantic_search",
+        "reranking_enable": false,
+        "reranking_mode": null,
+        "reranking_model": {
+          "reranking_provider_name": "",
+          "reranking_model_name": ""
+        },
+        "weights": null,
+        "top_k": 3,
+        "score_threshold_enabled": false,
+        "score_threshold": 0.0
+      },
+      "external_retrieval_model": {
+        "top_k": 3,
+        "score_threshold": 0.0,
+        "score_threshold_enabled": false
+      }
+    }
+  ]
+}

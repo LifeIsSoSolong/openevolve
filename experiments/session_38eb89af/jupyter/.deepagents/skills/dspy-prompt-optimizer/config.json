@@ -1,0 +1,19 @@
+{
+  "train_data": "train.jsonl",
+  "test_data": "test.jsonl",
+  "val_data": "",
+  "base_prompt": null,
+  "optimizer_model_name": "gpt5",
+  "seed": 42,
+  "optimizer_temperature": 1,
+  "optimizer": "mipro",
+  "mipro": {
+    "num_candidates": 8,
+    "num_trials": 12,
+    "num_threads": 1,
+    "max_bootstrapped_demos": 4,
+    "max_labeled_demos": 4,
+    "track_stats": true
+  },
+ "judge_model_name": "gpt5"
+}

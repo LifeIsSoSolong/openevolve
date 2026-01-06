@@ -1,0 +1,186 @@
+{
+  "schema_version": "0.1",
+  "last_updated": "2025-12-27T08:05:10.405459Z",
+  "source": {
+    "type": "dify_api",
+    "url": "https://evo.frontis.top/api/v1/agents/models/llm"
+  },
+  "models": [
+    {
+      "provider": "langgenius/moonshot/moonshot",
+      "name": "moonshot-v1-8k",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/moonshot/moonshot",
+      "name": "moonshot-v1-32k",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/moonshot/moonshot",
+      "name": "moonshot-v1-128k",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/moonshot/moonshot",
+      "name": "kimi-k2-0711-preview",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/moonshot/moonshot",
+      "name": "kimi-k2-thinking",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/moonshot/moonshot",
+      "name": "kimi-k2-thinking-turbo",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/moonshot/moonshot",
+      "name": "kimi-k2-0905-preview",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/moonshot/moonshot",
+      "name": "kimi-k2-turbo-preview",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/moonshot/moonshot",
+      "name": "kimi-k2-turbo-preview",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/openai_api_compatible/openai_api_compatible",
+      "name": "anthropic/claude-sonnet-4",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/openai_api_compatible/openai_api_compatible",
+      "name": "anthropic/claude-sonnet-4.5",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/openai_api_compatible/openai_api_compatible",
+      "name": "anthropic/claude-haiku-4.5",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/openai_api_compatible/openai_api_compatible",
+      "name": "google/gemini-3-pro-preview",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/openai_api_compatible/openai_api_compatible",
+      "name": "qwen/qwen3-max",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/openai_api_compatible/openai_api_compatible",
+      "name": "google/gemini-2.5-flash",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/openai_api_compatible/openai_api_compatible",
+      "name": "deepseek/deepseek-v3.2",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/openai_api_compatible/openai_api_compatible",
+      "name": "google/gemini-2.5-pro",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/openai_api_compatible/openai_api_compatible",
+      "name": "gemini-3-pro-preview",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/openai_api_compatible/openai_api_compatible",
+      "name": "gemini-2.5-flash",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/openai_api_compatible/openai_api_compatible",
+      "name": "claude-sonnet-4-5-20250929",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/openai_api_compatible/openai_api_compatible",
+      "name": "claude-sonnet-4-20250514",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    },
+    {
+      "provider": "langgenius/openai_api_compatible/openai_api_compatible",
+      "name": "claude-haiku-4-5-20251001",
+      "mode": "chat",
+      "default_completion_params": {
+        "temperature": 0.7
+      }
+    }
+  ]
+}
