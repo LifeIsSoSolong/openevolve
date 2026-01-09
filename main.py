@@ -45,10 +45,10 @@ BASE_CONFIG = {
         "primary_model_weight": 0.8,
         "secondary_model": "gpt-5.2",
         "secondary_model_weight": 0.2,
-        "api_base": "https://newapi.frontis.top/v1",
-        "api_key": "sk-JegueK6Qy16ZJ6zjxfoKBMwQ32kt56LRZgyTPlapD7cGw0QN",
-        # "api_base": "http://35.164.11.19:3887/v1",
-        # "api_key": "sk-DOnUAnR18NW7Yp3OCp9sfWTgyFPOTURpGovP9EFIrTNEzozV",
+        # "api_base": "https://newapi2.frontis.top/v1",
+        # "api_key": "sk-oFWKta9cIVteA6P6oZWHweTdgy8EpE9jP7spQ6KsAfzSlcXS",
+        "api_base": "http://35.164.11.19:3887/v1",
+        "api_key": "sk-DOnUAnR18NW7Yp3OCp9sfWTgyFPOTURpGovP9EFIrTNEzozV",
         "temperature": 0.5,
         "max_tokens": 60000,
         "timeout": 300,
@@ -286,6 +286,14 @@ async def run_openevolve(config_dict: Dict[str, Any], input_dir: Path, output_di
                             shutil.move(str(src_sub), str(dst / name))
                         except Exception as move_sub_exc:
                             print(f"Warning: failed to move {name} -> {dst}: {move_sub_exc}")
+                # MLE-Bench: 将 submission.csv 从 input_dir 复制到 step 目录
+                submission_csv = input_dir / "submission.csv"
+                if submission_csv.exists():
+                    try:
+                        shutil.copy2(str(submission_csv), str(dst / "submission.csv"))
+                        print(f"[checkpoint] Copied submission.csv to {dst}")
+                    except Exception as copy_exc:
+                        print(f"Warning: failed to copy submission.csv -> {dst}: {copy_exc}")
             except Exception as move_exc:
                 print(f"Warning: failed to rename {src} -> {dst}: {move_exc}")
 
